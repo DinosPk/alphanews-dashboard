@@ -205,7 +205,7 @@ export default function Page() {
       <div className="grid col-2">
 
         <div className="panel">
-          <h3>📰 Top ειδήσεις σήμερα · προβολές</h3>
+          <h3>📰 Top ειδήσεις · τελευταία ώρα</h3>
           <div className="list">
             {rt?.topPages.length ? (
               rt.topPages.map((p, i) => {
@@ -230,7 +230,7 @@ export default function Page() {
                 );
               })
             ) : (
-              <div className="empty">Δεν υπάρχουν προβολές ειδήσεων ακόμα σήμερα.</div>
+              <div className="empty">Δεν υπάρχουν προβολές ειδήσεων την τελευταία ώρα.</div>
             )}
           </div>
         </div>
@@ -356,6 +356,7 @@ export default function Page() {
           >
             <span style={{ color: "var(--accent)" }}>● Προβολές</span>
             <span style={{ color: "var(--blue)" }}>● Χρήστες</span>
+            <span style={{ color: "#7c89a8" }}>┄ Προηγ. περίοδος</span>
           </div>
         </div>
 

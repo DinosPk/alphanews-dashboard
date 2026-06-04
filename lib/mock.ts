@@ -132,7 +132,8 @@ export function mockHistorical(
       cfg.base * sectionScale * (0.7 + rnd() * 0.6) * daypart
     );
     const users = Math.floor(pageViews * (0.45 + rnd() * 0.1));
-    return { label, pageViews, users };
+    const prevPageViews = Math.floor(pageViews * (0.8 + rnd() * 0.35));
+    return { label, pageViews, users, prevPageViews };
   });
 
   const totalPV = timeseries.reduce((a, b) => a + b.pageViews, 0);

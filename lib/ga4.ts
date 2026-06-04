@@ -33,6 +33,7 @@ function scopeFilter(section: { pathContains: string } | null) {
   };
 }
 
+
 const propertyId = process.env.GA4_PROPERTY_ID;
 
 const hasOAuth = Boolean(
@@ -116,15 +117,20 @@ export async function getRealtime(): Promise<RealtimeData> {
   let byCountry: { country: string; users: number }[];
   try {
     const [pagesRes, deviceRes, countryRes] = await Promise.all([
-      // Top ειδήσεις σήμερα (φίλτρο path → 100% ειδήσεις)
+      // Top ειδήσεις ΤΕΛΕΥΤΑΙΑΣ ΩΡΑΣ — παίρνουμε ανά ώρα και κρατάμε τις 2
+      // πιο πρόσφατες ώρες που έχουν δεδομένα (ανθεκτικό σε ζώνη ώρας/καθυστέρηση).
       client.runReport({
         property,
-        dateRanges: today,
-        dimensions: [{ name: "pageTitle" }, { name: "pagePath" }],
+        dateRanges: [{ startDate: "yesterday", endDate: "today" }],
+        dimensions: [
+          { name: "dateHour" },
+          { name: "pageTitle" },
+          { name: "pagePath" },
+        ],
         metrics: [{ name: "screenPageViews" }],
         dimensionFilter: newsScope,
-        orderBys: [{ metric: { metricName: "screenPageViews" }, desc: true }],
-        limit: 8,
+        orderBys: [{ dimension: { dimensionName: "dateHour" }, desc: true }],
+        limit: 2000,
       }),
       client.runReport({
         property,
@@ -133,22 +139,52 @@ export async function getRealtime(): Promise<RealtimeData> {
         metrics: [{ name: "activeUsers" }],
         dimensionFilter: newsScope,
       }),
+      // Χώρες σήμερα — εξαιρώντας bots (μέση διάρκεια < 10s = data-center traffic)
       client.runReport({
         property,
         dateRanges: today,
         dimensions: [{ name: "country" }],
-        metrics: [{ name: "activeUsers" }],
+        metrics: [
+          { name: "activeUsers" },
+          { name: "averageSessionDuration" },
+        ],
         dimensionFilter: newsScope,
+        metricFilter: {
+          filter: {
+            fieldName: "averageSessionDuration",
+            numericFilter: {
+              operation: "GREATER_THAN",
+              value: { doubleValue: 10 },
+            },
+          },
+        },
         orderBys: [{ metric: { metricName: "activeUsers" }, desc: true }],
         limit: 6,
       }),
     ]);
 
-    topPages = (pagesRes[0].rows ?? []).map((row) => ({
-      title: row.dimensionValues?.[0]?.value || "(χωρίς τίτλο)",
-      path: row.dimensionValues?.[1]?.value || undefined,
-      value: num(row.metricValues?.[0]?.value),
-    }));
+    // Κράτα μόνο τις 2 πιο πρόσφατες ώρες που έχουν δεδομένα, άθροισε ανά τίτλο.
+    const pageRows = pagesRes[0].rows ?? [];
+    const recentHours = [
+      ...new Set(pageRows.map((r) => r.dimensionValues?.[0]?.value ?? "")),
+    ]
+      .sort()
+      .reverse()
+      .slice(0, 2);
+    const agg = new Map<string, PageRow>();
+    for (const row of pageRows) {
+      const hour = row.dimensionValues?.[0]?.value ?? "";
+      if (!recentHours.includes(hour)) continue;
+      const title = row.dimensionValues?.[1]?.value || "(χωρίς τίτλο)";
+      const path = row.dimensionValues?.[2]?.value || undefined;
+      const v = num(row.metricValues?.[0]?.value);
+      const cur = agg.get(title) ?? { title, path, value: 0 };
+      cur.value += v;
+      agg.set(title, cur);
+    }
+    topPages = [...agg.values()]
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 8);
     byDevice = (deviceRes[0].rows ?? [])
       .map((row) => ({
         device:
@@ -247,7 +283,8 @@ export async function getHistorical(
   const sectionFilter = scopeFilter(section);
 
   try {
-    const [kpiRes, tsRes, articlesRes, channelsRes] = await Promise.all([
+    const [kpiRes, tsRes, tsPrevRes, articlesRes, channelsRes] =
+      await Promise.all([
       // KPIs με σύγκριση δύο περιόδων
       client.runReport({
         property,
@@ -258,12 +295,22 @@ export async function getHistorical(
         metrics: KPI_METRICS.map((name) => ({ name })),
         dimensionFilter: sectionFilter,
       }),
-      // Χρονοσειρά (τάση)
+      // Χρονοσειρά (τάση) — τρέχουσα περίοδος
       client.runReport({
         property,
         dateRanges: [dates.current],
         dimensions: [{ name: dates.timeDimension }],
         metrics: [{ name: "screenPageViews" }, { name: "activeUsers" }],
+        orderBys: [{ dimension: { dimensionName: dates.timeDimension } }],
+        dimensionFilter: sectionFilter,
+        limit: 1000,
+      }),
+      // Χρονοσειρά — ΠΡΟΗΓΟΥΜΕΝΗ περίοδος (για σύγκριση στο γράφημα)
+      client.runReport({
+        property,
+        dateRanges: [dates.previous],
+        dimensions: [{ name: dates.timeDimension }],
+        metrics: [{ name: "screenPageViews" }],
         orderBys: [{ dimension: { dimensionName: dates.timeDimension } }],
         dimensionFilter: sectionFilter,
         limit: 1000,
@@ -304,10 +351,15 @@ export async function getHistorical(
       });
     }
 
-    const timeseries: TimePoint[] = (tsRes[0].rows ?? []).map((row) => ({
+    // Προβολές προηγούμενης περιόδου, σε σειρά (αντιστοίχιση ανά θέση)
+    const prevSeries = (tsPrevRes[0].rows ?? []).map((row) =>
+      num(row.metricValues?.[0]?.value)
+    );
+    const timeseries: TimePoint[] = (tsRes[0].rows ?? []).map((row, i) => ({
       label: labelFor(range, row.dimensionValues?.[0]?.value ?? ""),
       pageViews: num(row.metricValues?.[0]?.value),
       users: num(row.metricValues?.[1]?.value),
+      prevPageViews: prevSeries[i],
     }));
 
     const topArticles: PageRow[] = (articlesRes[0].rows ?? []).map((row) => ({

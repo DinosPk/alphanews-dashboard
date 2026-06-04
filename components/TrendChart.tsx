@@ -53,8 +53,22 @@ export default function TrendChart({ data }: { data: TimePoint[] }) {
           labelStyle={{ color: "#9aa6c2", marginBottom: 4 }}
           formatter={(value: number, name: string) => [
             fmt.format(value),
-            name === "pageViews" ? "Προβολές" : "Χρήστες",
+            name === "pageViews"
+              ? "Προβολές"
+              : name === "prevPageViews"
+                ? "Προβολές (προηγ. περίοδος)"
+                : "Χρήστες",
           ]}
+        />
+        {/* Προηγούμενη περίοδος — διακεκομμένη, σβησμένη */}
+        <Area
+          type="monotone"
+          dataKey="prevPageViews"
+          stroke="#7c89a8"
+          strokeWidth={1.5}
+          strokeDasharray="4 4"
+          fill="none"
+          dot={false}
         />
         <Area
           type="monotone"

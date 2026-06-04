@@ -23,10 +23,12 @@ export interface ChannelRow {
 export interface TimePoint {
   /** Ετικέτα άξονα Χ (ώρα ή ημερομηνία) */
   label: string;
-  /** Προβολές σελίδων */
+  /** Προβολές σελίδων (τρέχουσα περίοδος) */
   pageViews: number;
   /** Ενεργοί χρήστες */
   users: number;
+  /** Προβολές της ΠΡΟΗΓΟΥΜΕΝΗΣ περιόδου (ίδια θέση) — για σύγκριση */
+  prevPageViews?: number;
 }
 
 /** Απάντηση του /api/realtime (ειδήσεις «σήμερα», ανανέωση κάθε 30") */
