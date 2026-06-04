@@ -229,15 +229,17 @@ function rangeDates(range: RangeKey): RangeDates {
         timeDimension: "dateHour",
       };
     case "7d":
+      // 7 ΟΛΟΚΛΗΡΩΜΕΝΕΣ μέρες (μέχρι χθες) — χωρίς τη μισή σημερινή.
       return {
-        current: { startDate: "6daysAgo", endDate: "today" },
-        previous: { startDate: "13daysAgo", endDate: "7daysAgo" },
+        current: { startDate: "7daysAgo", endDate: "yesterday" },
+        previous: { startDate: "14daysAgo", endDate: "8daysAgo" },
         timeDimension: "date",
       };
     case "30d":
+      // 30 ΟΛΟΚΛΗΡΩΜΕΝΕΣ μέρες (μέχρι χθες).
       return {
-        current: { startDate: "29daysAgo", endDate: "today" },
-        previous: { startDate: "59daysAgo", endDate: "30daysAgo" },
+        current: { startDate: "30daysAgo", endDate: "yesterday" },
+        previous: { startDate: "60daysAgo", endDate: "31daysAgo" },
         timeDimension: "date",
       };
   }
