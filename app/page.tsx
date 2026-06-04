@@ -100,18 +100,19 @@ export default function Page() {
     }
   }, []);
 
-  // Real-time: φόρτωση + ανανέωση κάθε 15"
+  // Top ειδήσεις (τελευταία ώρα): auto-refresh κάθε 60"
   useEffect(() => {
     loadRealtime();
-    // 30s: εξοικονόμηση realtime quota του GA4
-    const id = setInterval(loadRealtime, 30000);
+    const id = setInterval(loadRealtime, 60000);
     return () => clearInterval(id);
   }, [loadRealtime]);
 
-  // Ιστορικά: όποτε αλλάζει το εύρος ή η ενότητα
+  // Ιστορικά: φόρτωση σε αλλαγή εύρους/ενότητας + auto-refresh κάθε 3'
   useEffect(() => {
-    setHist(null);
+    setHist(null); // skeleton μόνο στην αρχική φόρτωση/αλλαγή
     loadHistorical(range, section);
+    const id = setInterval(() => loadHistorical(range, section), 180000);
+    return () => clearInterval(id);
   }, [range, section, loadHistorical]);
 
   // Υπολογισμός μεταβολής ανά άρθρο σε σχέση με την προηγούμενη ανανέωση
@@ -405,8 +406,8 @@ export default function Page() {
 
       <div className="footer">
         <span>
-          Πηγή: Google Analytics 4{isDemo ? " (demo δεδομένα)" : ""} · Ανανέωση
-          real-time κάθε 15″
+          Πηγή: Google Analytics 4{isDemo ? " (demo δεδομένα)" : ""} ·
+          Αυτόματη ανανέωση: ειδήσεις κάθε 60″, ιστορικά κάθε 3′
         </span>
         <span>
           {rt
