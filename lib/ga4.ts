@@ -267,6 +267,147 @@ function labelFor(range: RangeKey, raw: string): string {
   return `${d}/${m}`;
 }
 
+// --- Βοηθοί για κυλιόμενο 24ωρο (μορφή dateHour "YYYYMMDDHH") ---
+function parseHour(s: string): Date {
+  return new Date(
+    Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(8, 10))
+  );
+}
+function fmtHour(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(
+    d.getUTCHours()
+  )}`;
+}
+// Λίστα `count` διαδοχικών ωρών (φθίνουσα) που τελειώνει στο `latest`.
+function hoursBack(latest: string, count: number): string[] {
+  const base = parseHour(latest).getTime();
+  return Array.from({ length: count }, (_, i) =>
+    fmtHour(new Date(base - i * 3600000))
+  );
+}
+
+// Κυλιόμενο 24ωρο: τελευταίες 24 ώρες (με δεδομένα) vs προηγούμενες 24.
+async function rolling24h(
+  client: BetaAnalyticsDataClient,
+  scope: ReturnType<typeof scopeFilter>
+): Promise<HistoricalData> {
+  const range: RangeKey = "24h";
+  const dateRanges = [{ startDate: "3daysAgo", endDate: "today" }];
+  const andHours = (hours: string[]) => ({
+    andGroup: {
+      expressions: [
+        scope,
+        { filter: { fieldName: "dateHour", inListFilter: { values: hours } } },
+      ],
+    },
+  });
+
+  // Στάδιο 1: ωριαία δεδομένα → βρες τις πιο πρόσφατες ώρες με δεδομένα.
+  const [hourlyRes] = await client.runReport({
+    property,
+    dateRanges,
+    dimensions: [{ name: "dateHour" }],
+    metrics: [{ name: "screenPageViews" }, { name: "activeUsers" }],
+    dimensionFilter: scope,
+    orderBys: [{ dimension: { dimensionName: "dateHour" } }],
+    limit: 1000,
+  });
+  const hourMap = new Map<string, { pv: number; users: number }>();
+  for (const row of hourlyRes.rows ?? []) {
+    hourMap.set(row.dimensionValues?.[0]?.value ?? "", {
+      pv: num(row.metricValues?.[0]?.value),
+      users: num(row.metricValues?.[1]?.value),
+    });
+  }
+  const present = [...hourMap.keys()].sort();
+  const latest = present[present.length - 1] ?? fmtHour(new Date());
+  const all48 = hoursBack(latest, 48);
+  const cur24 = all48.slice(0, 24);
+  const prev24 = all48.slice(24, 48);
+  const cur24Asc = [...cur24].reverse();
+  const prev24Asc = [...prev24].reverse();
+
+  // Χρονοσειρά: θέση-θέση, τρέχον vs προηγούμενο 24ωρο.
+  const timeseries: TimePoint[] = cur24Asc.map((h, i) => {
+    const c = hourMap.get(h);
+    return {
+      label: h.slice(8, 10) + ":00",
+      pageViews: c?.pv ?? 0,
+      users: c?.users ?? 0,
+      prevPageViews: hourMap.get(prev24Asc[i])?.pv ?? 0,
+    };
+  });
+
+  // Στάδιο 2: KPIs (τρέχον & προηγούμενο), top άρθρα, πηγές.
+  const [kpiCur, kpiPrev, articlesRes, channelsRes] = await Promise.all([
+    client.runReport({
+      property,
+      dateRanges,
+      metrics: KPI_METRICS.map((name) => ({ name })),
+      dimensionFilter: andHours(cur24),
+    }),
+    client.runReport({
+      property,
+      dateRanges,
+      metrics: KPI_METRICS.map((name) => ({ name })),
+      dimensionFilter: andHours(prev24),
+    }),
+    client.runReport({
+      property,
+      dateRanges,
+      dimensions: [{ name: "pageTitle" }, { name: "pagePath" }],
+      metrics: [{ name: "screenPageViews" }],
+      dimensionFilter: andHours(cur24),
+      orderBys: [{ metric: { metricName: "screenPageViews" }, desc: true }],
+      limit: 10,
+    }),
+    client.runReport({
+      property,
+      dateRanges,
+      dimensions: [{ name: "sessionDefaultChannelGroup" }],
+      metrics: [{ name: "sessions" }],
+      dimensionFilter: andHours(cur24),
+      orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+      limit: 8,
+    }),
+  ]);
+
+  const cv = (r: typeof kpiCur, i: number) =>
+    num(r[0].rows?.[0]?.metricValues?.[i]?.value);
+
+  const topArticles: PageRow[] = (articlesRes[0].rows ?? []).map((row) => ({
+    title: row.dimensionValues?.[0]?.value || "(χωρίς τίτλο)",
+    path: row.dimensionValues?.[1]?.value || undefined,
+    value: num(row.metricValues?.[0]?.value),
+  }));
+  const rawChannels = (channelsRes[0].rows ?? []).map((row) => ({
+    channel: row.dimensionValues?.[0]?.value || "(άλλο)",
+    sessions: num(row.metricValues?.[0]?.value),
+  }));
+  const chTotal = rawChannels.reduce((a, b) => a + b.sessions, 0) || 1;
+  const channels: ChannelRow[] = rawChannels.map((c) => ({
+    ...c,
+    share: (c.sessions / chTotal) * 100,
+  }));
+
+  return {
+    range,
+    kpis: {
+      pageViews: kpiVal(cv(kpiCur, 0), cv(kpiPrev, 0)),
+      activeUsers: kpiVal(cv(kpiCur, 1), cv(kpiPrev, 1)),
+      sessions: kpiVal(cv(kpiCur, 2), cv(kpiPrev, 2)),
+      avgSessionDuration: kpiVal(cv(kpiCur, 3), cv(kpiPrev, 3)),
+      engagementRate: kpiVal(cv(kpiCur, 4) * 100, cv(kpiPrev, 4) * 100),
+    },
+    timeseries,
+    topArticles,
+    channels,
+    demo: false,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
 export async function getHistorical(
   range: RangeKey,
   sectionKey?: string | null
@@ -276,11 +417,21 @@ export async function getHistorical(
   const client = buildClient();
   if (!client) return mockHistorical(range, sectionKey);
 
-  const dates = rangeDates(range);
-
   // Καθολικό scope: μία ενότητα → μόνο αυτή· αλλιώς ΟΛΕΣ οι ειδήσεις.
   // Έτσι το dashboard δεν μετράει ποτέ σειρές/live/ψυχαγωγία.
   const sectionFilter = scopeFilter(section);
+
+  // Το 24ωρο είναι κυλιόμενο (τελευταίες 24 ώρες vs προηγούμενες 24).
+  if (range === "24h") {
+    try {
+      return await rolling24h(client, sectionFilter);
+    } catch (err) {
+      console.error("[GA4] Σφάλμα κυλιόμενου 24ώρου, γυρνάω demo:", err);
+      return mockHistorical(range, sectionKey);
+    }
+  }
+
+  const dates = rangeDates(range);
 
   try {
     const [kpiRes, tsRes, tsPrevRes, articlesRes, channelsRes] =

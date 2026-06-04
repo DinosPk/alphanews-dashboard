@@ -4,6 +4,8 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "alphanews · Newsroom Dashboard",
   description: "Real-time & ιστορικά στατιστικά επισκεψιμότητας από το GA4",
+  // Μη ευρετηριάσιμο — διαθέσιμο μόνο σε όποιον έχει το link.
+  robots: { index: false, follow: false },
 };
 
 export const viewport: Viewport = {

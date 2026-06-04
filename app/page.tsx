@@ -20,7 +20,7 @@ const RANGES: { key: RangeKey; label: string }[] = [
 ];
 
 const RANGE_NOTE: Record<RangeKey, string> = {
-  "24h": "σήμερα vs χθες",
+  "24h": "τελευταίες 24 ώρες vs προηγούμενες 24",
   "7d": "7 ημέρες vs προηγούμενες 7",
   "30d": "30 ημέρες vs προηγούμενες 30",
 };
