@@ -4,11 +4,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   RealtimeData,
   HistoricalData,
+  MonthlyData,
   RangeKey,
   KpiValue,
 } from "@/lib/types";
 import { SECTIONS } from "@/lib/sections";
 import TrendChart from "@/components/TrendChart";
+import MonthlyChart from "@/components/MonthlyChart";
+
+type View = "overview" | "monthly";
 
 const nf = new Intl.NumberFormat("el-GR");
 const fmt = (n: number) => nf.format(Math.round(n));
@@ -70,6 +74,8 @@ function Kpi({
 export default function Page() {
   const [rt, setRt] = useState<RealtimeData | null>(null);
   const [hist, setHist] = useState<HistoricalData | null>(null);
+  const [monthly, setMonthly] = useState<MonthlyData | null>(null);
+  const [view, setView] = useState<View>("overview");
   const [range, setRange] = useState<RangeKey>("24h");
   const [section, setSection] = useState<string>("all");
   const [now, setNow] = useState("");
@@ -100,6 +106,17 @@ export default function Page() {
     }
   }, []);
 
+  const loadMonthly = useCallback(async (s: string) => {
+    try {
+      const res = await fetch(`/api/monthly?section=${s}`, {
+        cache: "no-store",
+      });
+      setMonthly(await res.json());
+    } catch {
+      /* αγνόησε */
+    }
+  }, []);
+
   // Top ειδήσεις (τελευταία ώρα): auto-refresh κάθε 60"
   useEffect(() => {
     loadRealtime();
@@ -114,6 +131,15 @@ export default function Page() {
     const id = setInterval(() => loadHistorical(range, section), 180000);
     return () => clearInterval(id);
   }, [range, section, loadHistorical]);
+
+  // Μηνιαία στοιχεία: φόρτωση όταν ανοίγει το tab ή αλλάζει ενότητα + refresh/30'
+  useEffect(() => {
+    if (view !== "monthly") return;
+    setMonthly(null);
+    loadMonthly(section);
+    const id = setInterval(() => loadMonthly(section), 1800000);
+    return () => clearInterval(id);
+  }, [view, section, loadMonthly]);
 
   // Υπολογισμός μεταβολής ανά άρθρο σε σχέση με την προηγούμενη ανανέωση
   useEffect(() => {
@@ -186,6 +212,24 @@ export default function Page() {
         </div>
       </div>
 
+      {/* ---------- Κεντρικά tabs (Επισκόπηση / Μηνιαία) ---------- */}
+      <div className="view-tabs">
+        <button
+          className={`view-tab ${view === "overview" ? "active" : ""}`}
+          onClick={() => setView("overview")}
+        >
+          Επισκόπηση
+        </button>
+        <button
+          className={`view-tab ${view === "monthly" ? "active" : ""}`}
+          onClick={() => setView("monthly")}
+        >
+          Μηνιαία στοιχεία
+        </button>
+      </div>
+
+      {view === "overview" && (
+        <>
       {/* ---------- ΕΙΔΗΣΕΙΣ ΣΗΜΕΡΑ (live) ---------- */}
       <div className="section-title live">
         <span className="bar" />
@@ -403,6 +447,91 @@ export default function Page() {
           </div>
         </div>
       </div>
+        </>
+      )}
+
+      {/* ---------- MONTHLY VIEW ---------- */}
+      {view === "monthly" && (
+        <>
+          <div
+            className="section-title"
+            style={{ justifyContent: "space-between" }}
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span className="bar" />
+              Μηνιαία στοιχεία · ανά ημερολογιακό μήνα
+            </span>
+            <div className="controls">
+              <select
+                className="select"
+                value={section}
+                onChange={(e) => setSection(e.target.value)}
+                aria-label="Ενότητα"
+              >
+                <option value="all">Όλες οι ενότητες</option>
+                {SECTIONS.map((s) => (
+                  <option key={s.key} value={s.key}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="muted" style={{ fontSize: 12, margin: "0 2px 16px" }}>
+            Κάθε στήλη = πλήρης μήνας (1η → τέλος).
+            {monthly?.partialLast &&
+              " Ο τελευταίος μήνας είναι σε εξέλιξη (ξεθωριασμένος)."}
+          </div>
+
+          {monthly ? (
+            <div className="grid" style={{ gap: 16 }}>
+              <div className="panel">
+                <h3>📄 Προβολές σελίδων · ανά μήνα</h3>
+                <MonthlyChart
+                  data={monthly.months}
+                  metric="pageViews"
+                  color="#e4002b"
+                  name="Προβολές"
+                  partialLast={monthly.partialLast}
+                />
+              </div>
+              <div className="panel">
+                <h3>👥 Χρήστες · ανά μήνα</h3>
+                <MonthlyChart
+                  data={monthly.months}
+                  metric="users"
+                  color="#3d7dff"
+                  name="Χρήστες"
+                  partialLast={monthly.partialLast}
+                />
+              </div>
+              <div className="panel">
+                <h3>🧭 Συνεδρίες · ανά μήνα</h3>
+                <MonthlyChart
+                  data={monthly.months}
+                  metric="sessions"
+                  color="#2ed47a"
+                  name="Συνεδρίες"
+                  partialLast={monthly.partialLast}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="grid" style={{ gap: 16 }}>
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div className="panel" key={i}>
+                  <div
+                    className="skeleton"
+                    style={{ height: 12, width: "40%", marginBottom: 16 }}
+                  />
+                  <div className="skeleton" style={{ height: 240 }} />
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
 
       <div className="footer">
         <span>

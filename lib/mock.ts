@@ -4,6 +4,8 @@
 import type {
   RealtimeData,
   HistoricalData,
+  MonthlyData,
+  MonthPoint,
   RangeKey,
   PageRow,
   TimePoint,
@@ -82,6 +84,64 @@ export function mockRealtime(): RealtimeData {
       { device: "Tablet", users: tablet },
     ],
     byCountry,
+    demo: true,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+const MONTHS_GR_SHORT = [
+  "Ιαν", "Φεβ", "Μαρ", "Απρ", "Μάι", "Ιουν",
+  "Ιουλ", "Αυγ", "Σεπ", "Οκτ", "Νοε", "Δεκ",
+];
+
+export function mockMonthly(sectionKey?: string | null): MonthlyData {
+  const hasSection = Boolean(sectionKey && sectionKey !== "all");
+  const sectionSeed = (sectionKey ?? "all")
+    .split("")
+    .reduce((a, c) => a + c.charCodeAt(0), 0);
+  const sectionScale = hasSection ? 0.18 + (sectionSeed % 5) * 0.06 : 1;
+  const rnd = seeded(20260101 + sectionSeed);
+
+  const now = new Date();
+  // Ξεκινάμε από τον ανασχεδιασμό (Απρίλιος 2026) έως τον τρέχοντα μήνα.
+  const launch = new Date(2026, 3, 1); // Απρίλιος 2026 (0-based μήνας = 3)
+  const count =
+    (now.getFullYear() - launch.getFullYear()) * 12 +
+    (now.getMonth() - launch.getMonth()) +
+    1;
+  const total = Math.max(1, count);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const base = 2_600_000; // μηνιαίες προβολές (τάξη μεγέθους)
+
+  const months: MonthPoint[] = Array.from({ length: total }, (_, i) => {
+    const d = new Date(launch.getFullYear(), launch.getMonth() + i, 1);
+    const y = d.getFullYear();
+    const m = d.getMonth();
+    const ym = `${y}${pad(m + 1)}`;
+    // Ήπια εποχικότητα + τυχαία διακύμανση.
+    const season = 0.85 + Math.sin((m / 12) * Math.PI * 2) * 0.12;
+    const isCurrent = i === total - 1;
+    // Ο τρέχων μήνας είναι ημιτελής → κλάσμα ανάλογα με τη μέρα.
+    const partialFactor = isCurrent
+      ? Math.max(0.1, now.getDate() / 30)
+      : 1;
+    const pageViews = Math.floor(
+      base * sectionScale * season * (0.85 + rnd() * 0.35) * partialFactor
+    );
+    const users = Math.floor(pageViews * (0.42 + rnd() * 0.08));
+    const sessions = Math.floor(users * (1.25 + rnd() * 0.25));
+    return {
+      ym,
+      label: `${MONTHS_GR_SHORT[m]} ${String(y).slice(2)}`,
+      pageViews,
+      users,
+      sessions,
+    };
+  });
+
+  return {
+    months,
+    partialLast: true,
     demo: true,
     generatedAt: new Date().toISOString(),
   };

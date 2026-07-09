@@ -7,12 +7,14 @@ import { OAuth2Client, GoogleAuth } from "google-auth-library";
 import type {
   RealtimeData,
   HistoricalData,
+  MonthlyData,
+  MonthPoint,
   RangeKey,
   PageRow,
   ChannelRow,
   TimePoint,
 } from "./types";
-import { mockRealtime, mockHistorical } from "./mock";
+import { mockRealtime, mockHistorical, mockMonthly } from "./mock";
 import { findSection, NEWS_PATHS } from "./sections";
 
 // Φίλτρο pagePath «αρχίζει με» (BEGINS_WITH)
@@ -210,6 +212,90 @@ export async function getRealtime(): Promise<RealtimeData> {
     demo: false,
     generatedAt: new Date().toISOString(),
   };
+}
+
+// ----------------------------- MONTHLY -----------------------------
+
+// Σύντομα ονόματα μηνών (ελληνικά) για τις ετικέτες του άξονα Χ.
+const MONTHS_GR_SHORT = [
+  "Ιαν", "Φεβ", "Μαρ", "Απρ", "Μάι", "Ιουν",
+  "Ιουλ", "Αυγ", "Σεπ", "Οκτ", "Νοε", "Δεκ",
+];
+
+// "YYYYMM" → "Ιαν 26"
+function monthLabel(ym: string): string {
+  const y = ym.slice(2, 4);
+  const m = Number(ym.slice(4, 6)) - 1;
+  return `${MONTHS_GR_SHORT[m] ?? ym.slice(4, 6)} ${y}`;
+}
+
+// Ο ανασχεδιασμός του site έγινε τον Απρίλιο 2026 — τα προηγούμενα δεδομένα
+// αφορούν άλλη δομή/URLs και ΔΕΝ είναι συγκρίσιμα, οπότε ξεκινάμε από εκεί.
+const LAUNCH_YEAR = 2026;
+const LAUNCH_MONTH = 4; // Απρίλιος (1-based)
+
+/**
+ * Μηνιαία ιστορικά στοιχεία: προβολές / χρήστες / συνεδρίες ανά ημερολογιακό
+ * μήνα (1η → τέλος). Χρησιμοποιεί το dimension `yearMonth`, οπότε η ομαδοποίηση
+ * ανά πλήρη μήνα γίνεται αυτόματα από το GA4.
+ */
+export async function getMonthly(
+  sectionKey?: string | null
+): Promise<MonthlyData> {
+  const section = findSection(sectionKey);
+  if (!isConfigured()) return mockMonthly(sectionKey);
+  const client = buildClient();
+  if (!client) return mockMonthly(sectionKey);
+
+  // Έναρξη: 1η Απριλίου 2026 (ανασχεδιασμός). Λήξη: σήμερα — ο τρέχων μήνας
+  // είναι ημιτελής.
+  const now = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  const startDate = `${LAUNCH_YEAR}-${p(LAUNCH_MONTH)}-01`;
+
+  try {
+    const [res] = await client.runReport({
+      property,
+      dateRanges: [{ startDate, endDate: "today" }],
+      dimensions: [{ name: "yearMonth" }],
+      metrics: [
+        { name: "screenPageViews" },
+        { name: "activeUsers" },
+        { name: "sessions" },
+      ],
+      orderBys: [{ dimension: { dimensionName: "yearMonth" } }],
+      dimensionFilter: scopeFilter(section),
+      limit: 100,
+    });
+
+    const months: MonthPoint[] = (res.rows ?? [])
+      .map((row) => {
+        const ym = row.dimensionValues?.[0]?.value ?? "";
+        return {
+          ym,
+          label: monthLabel(ym),
+          pageViews: num(row.metricValues?.[0]?.value),
+          users: num(row.metricValues?.[1]?.value),
+          sessions: num(row.metricValues?.[2]?.value),
+        };
+      })
+      .filter((m) => m.ym)
+      .sort((a, b) => a.ym.localeCompare(b.ym));
+
+    const curYm = `${now.getFullYear()}${p(now.getMonth() + 1)}`;
+    const partialLast =
+      months.length > 0 && months[months.length - 1].ym === curYm;
+
+    return {
+      months,
+      partialLast,
+      demo: false,
+      generatedAt: new Date().toISOString(),
+    };
+  } catch (err) {
+    console.error("[GA4] Σφάλμα μηνιαίων, γυρνάω demo:", err);
+    return mockMonthly(sectionKey);
+  }
 }
 
 // ----------------------------- HISTORICAL -----------------------------

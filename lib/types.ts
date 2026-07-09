@@ -52,6 +52,29 @@ export interface KpiValue {
   changePct: number | null;
 }
 
+/** Ένα σημείο της μηνιαίας χρονοσειράς (πλήρης ημερολογιακός μήνας, 1 → τέλος). */
+export interface MonthPoint {
+  /** Μορφή "YYYYMM" (π.χ. "202601") */
+  ym: string;
+  /** Ετικέτα άξονα Χ (π.χ. "Ιαν 26") */
+  label: string;
+  /** Προβολές σελίδων */
+  pageViews: number;
+  /** Ενεργοί χρήστες */
+  users: number;
+  /** Συνεδρίες */
+  sessions: number;
+}
+
+/** Απάντηση του /api/monthly — μηνιαία ιστορικά στοιχεία. */
+export interface MonthlyData {
+  months: MonthPoint[];
+  /** true αν ο τελευταίος μήνας είναι ο τρέχων (ημιτελής) */
+  partialLast: boolean;
+  demo: boolean;
+  generatedAt: string;
+}
+
 /** Απάντηση του /api/historical */
 export interface HistoricalData {
   range: RangeKey;
