@@ -63,6 +63,7 @@ export default function MonthlyChart({
             fontSize: 13,
           }}
           labelStyle={{ color: "#9aa6c2", marginBottom: 4 }}
+          itemStyle={{ color: "#eef2fb" }}
           formatter={(value: number, _n, item) => {
             const partial =
               partialLast && item?.payload?.ym === data[data.length - 1]?.ym;
