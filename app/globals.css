@@ -159,6 +159,11 @@ body {
   display: grid;
   gap: 16px;
 }
+/* Επιτρέπει στα grid items (panels) να συρρικνώνονται κάτω από το περιεχόμενό
+   τους, ώστε να δουλεύει το ellipsis στους μεγάλους τίτλους αντί να ξεχειλίζουν. */
+.grid > * {
+  min-width: 0;
+}
 .panel {
   background: linear-gradient(180deg, var(--panel-2), var(--panel));
   border: 1px solid var(--border-soft);
