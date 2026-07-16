@@ -15,7 +15,7 @@ import type {
   TimePoint,
 } from "./types";
 import { mockRealtime, mockHistorical, mockMonthly } from "./mock";
-import { findSection, NEWS_ROOT } from "./sections";
+import { findSection, NEWS_PATHS } from "./sections";
 
 // Φίλτρο pagePath «αρχίζει με» (BEGINS_WITH)
 function beginsWith(value: string) {
@@ -27,14 +27,14 @@ function beginsWith(value: string) {
   };
 }
 
-// Καθολικό scope: συγκεκριμένη ενότητα → μόνο αυτή· αλλιώς ΟΛΟ το /news/.
-// Κανόνας: μετράμε ό,τι βρίσκεται στο /news/ και ό,τι κρέμεται από κάτω του.
-// (Το trailing slash είναι κρίσιμο: χωρίς αυτό το BEGINS_WITH "/news" θα έπιανε
-//  κατά λάθος και το /newscast/… που είναι σελίδα εκπομπής, όχι άρθρο.)
+// Καθολικό scope: συγκεκριμένη ενότητα → μόνο αυτή· αλλιώς ΟΛΑ τα news paths.
+// Τα paths είναι επαληθευμένα από GA4 export: τα άρθρα είναι top-level ανά
+// κατηγορία (/koinonia/{slug}), ΟΧΙ κάτω από /news/ (που είναι μόνο το hub).
 function scopeFilter(section: { pathContains: string } | null) {
   if (section) return beginsWith(section.pathContains);
-  return beginsWith(NEWS_ROOT);
+  return { orGroup: { expressions: NEWS_PATHS.map((p) => beginsWith(p)) } };
 }
+
 
 
 const propertyId = process.env.GA4_PROPERTY_ID;
@@ -248,42 +248,60 @@ export async function getMonthly(
   const client = buildClient();
   if (!client) return mockMonthly(sectionKey);
 
-  // Έναρξη: 1η Απριλίου 2026 (ανασχεδιασμός). Λήξη: σήμερα — ο τρέχων μήνας
-  // είναι ημιτελής.
   const now = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
-  const startDate = `${LAUNCH_YEAR}-${p(LAUNCH_MONTH)}-01`;
+  const scope = scopeFilter(section);
+
+  // ΣΗΜΑΝΤΙΚΟ: ΔΕΝ κάνουμε ΕΝΑ query για όλο το διάστημα με dimension yearMonth.
+  // Το GA4 σε μεγάλα date ranges + φίλτρο pagePath χτυπάει cardinality όρια και
+  // ρίχνει τα δεδομένα στο "(other)", που το φίλτρο δεν πιάνει → τα νούμερα
+  // κατέρρεαν (π.χ. 94 αντί για ~17.000). Αντ' αυτού: ΕΝΑ μικρό query ανά μήνα.
+  const curY = now.getFullYear();
+  const curM = now.getMonth() + 1;
+  const buckets: { ym: string; start: string; end: string }[] = [];
+  let y = LAUNCH_YEAR;
+  let m = LAUNCH_MONTH;
+  while (y < curY || (y === curY && m <= curM)) {
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const isCurrent = y === curY && m === curM;
+    buckets.push({
+      ym: `${y}${p(m)}`,
+      start: `${y}-${p(m)}-01`,
+      end: isCurrent ? "today" : `${y}-${p(m)}-${p(lastDay)}`,
+    });
+    m++;
+    if (m > 12) {
+      m = 1;
+      y++;
+    }
+  }
 
   try {
-    const [res] = await client.runReport({
-      property,
-      dateRanges: [{ startDate, endDate: "today" }],
-      dimensions: [{ name: "yearMonth" }],
-      metrics: [
-        { name: "screenPageViews" },
-        { name: "activeUsers" },
-        { name: "sessions" },
-      ],
-      orderBys: [{ dimension: { dimensionName: "yearMonth" } }],
-      dimensionFilter: scopeFilter(section),
-      limit: 100,
-    });
-
-    const months: MonthPoint[] = (res.rows ?? [])
-      .map((row) => {
-        const ym = row.dimensionValues?.[0]?.value ?? "";
+    const months: MonthPoint[] = await Promise.all(
+      buckets.map(async (b) => {
+        const [res] = await client.runReport({
+          property,
+          dateRanges: [{ startDate: b.start, endDate: b.end }],
+          metrics: [
+            { name: "screenPageViews" },
+            { name: "activeUsers" },
+            { name: "sessions" },
+          ],
+          dimensionFilter: scope,
+        });
+        const row = res.rows?.[0];
         return {
-          ym,
-          label: monthLabel(ym),
-          pageViews: num(row.metricValues?.[0]?.value),
-          users: num(row.metricValues?.[1]?.value),
-          sessions: num(row.metricValues?.[2]?.value),
+          ym: b.ym,
+          label: monthLabel(b.ym),
+          pageViews: num(row?.metricValues?.[0]?.value),
+          users: num(row?.metricValues?.[1]?.value),
+          sessions: num(row?.metricValues?.[2]?.value),
         };
       })
-      .filter((m) => m.ym)
-      .sort((a, b) => a.ym.localeCompare(b.ym));
+    );
 
-    const curYm = `${now.getFullYear()}${p(now.getMonth() + 1)}`;
+    months.sort((a, b) => a.ym.localeCompare(b.ym));
+    const curYm = `${curY}${p(curM)}`;
     const partialLast =
       months.length > 0 && months[months.length - 1].ym === curYm;
 
@@ -638,4 +656,45 @@ export async function getHistorical(
     console.error("[GA4] Σφάλμα historical, γυρνάω demo:", err);
     return mockHistorical(range, sectionKey);
   }
+}
+
+// ----------------------------- DEBUG -----------------------------
+// Προσωρινό: δείχνει την ΠΡΑΓΜΑΤΙΚΗ δομή δεδομένων στο GA4, ΧΩΡΙΣ κανένα φίλτρο.
+// Σκοπός: να βρούμε πώς ξεχωρίζουμε τα ειδησεογραφικά. Σβήνεται μετά.
+export async function getDebugStructure() {
+  if (!isConfigured()) return { error: "GA4 δεν είναι configured" };
+  const client = buildClient();
+  if (!client) return { error: "Δεν έγινε build ο client" };
+
+  const dateRanges = [{ startDate: "7daysAgo", endDate: "today" }];
+
+  const probe = async (dimNames: string[], limit = 25) => {
+    try {
+      const [res] = await client.runReport({
+        property,
+        dateRanges,
+        dimensions: dimNames.map((name) => ({ name })),
+        metrics: [{ name: "screenPageViews" }],
+        orderBys: [{ metric: { metricName: "screenPageViews" }, desc: true }],
+        limit,
+      });
+      return (res.rows ?? []).map((r) => ({
+        key: (r.dimensionValues ?? []).map((d) => d.value).join("  |  "),
+        views: num(r.metricValues?.[0]?.value),
+      }));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { error: msg.slice(0, 200) };
+    }
+  };
+
+  return {
+    // 1) Τα κορυφαία paths ΟΛΟΥ του site (χωρίς φίλτρο) — η πραγματική δομή.
+    topPaths: await probe(["pagePath"]),
+    // 2) Υπάρχει contentGroup; Αν ναι, είναι ο σωστός τρόπος για news scope.
+    contentGroups: await probe(["contentGroup"], 20),
+    // 3) Πρώτο τμήμα του path (δείχνει τις "οικογένειες" URL).
+    byHostname: await probe(["hostName"], 10),
+    generatedAt: new Date().toISOString(),
+  };
 }
