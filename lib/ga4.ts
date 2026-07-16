@@ -15,7 +15,7 @@ import type {
   TimePoint,
 } from "./types";
 import { mockRealtime, mockHistorical, mockMonthly } from "./mock";
-import { findSection, NEWS_PATHS } from "./sections";
+import { findSection, NEWS_ROOT } from "./sections";
 
 // Φίλτρο pagePath «αρχίζει με» (BEGINS_WITH)
 function beginsWith(value: string) {
@@ -27,12 +27,13 @@ function beginsWith(value: string) {
   };
 }
 
-// Καθολικό scope: συγκεκριμένη ενότητα → μόνο αυτή· αλλιώς ΟΛΕΣ οι ειδήσεις.
+// Καθολικό scope: συγκεκριμένη ενότητα → μόνο αυτή· αλλιώς ΟΛΟ το /news/.
+// Κανόνας: μετράμε ό,τι βρίσκεται στο /news/ και ό,τι κρέμεται από κάτω του.
+// (Το trailing slash είναι κρίσιμο: χωρίς αυτό το BEGINS_WITH "/news" θα έπιανε
+//  κατά λάθος και το /newscast/… που είναι σελίδα εκπομπής, όχι άρθρο.)
 function scopeFilter(section: { pathContains: string } | null) {
   if (section) return beginsWith(section.pathContains);
-  return {
-    orGroup: { expressions: NEWS_PATHS.map((p) => beginsWith(p)) },
-  };
+  return beginsWith(NEWS_ROOT);
 }
 
 
