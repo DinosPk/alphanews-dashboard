@@ -1,37 +1,48 @@
-// Ενότητες του alphatv.gr για φιλτράρισμα ιστορικών στοιχείων.
+// Ενότητες ειδήσεων του alphatv.gr.
 //
-// ΚΑΝΟΝΑΣ SCOPE (καθολικός):
-//   Μετράμε ΟΤΙΔΗΠΟΤΕ βρίσκεται στο /news/ και ΟΤΙΔΗΠΟΤΕ από κάτω του.
-//   Πραγματική δομή URL: /news/{κατηγορία}/article/{id}/{slug}/
-//   π.χ. /news/kosmos/article/220742/sudrivi-an-26-stin-krimaia/
+// ΕΠΑΛΗΘΕΥΜΕΝΟ από GA4 export (Pages and screens, 9-15/7/2026):
+// Τα άρθρα ζουν σε top-level paths ανά κατηγορία:
+//   /koinonia/{slug}/   π.χ. /koinonia/dolofoniki-epithesi-stin-kriti.../  (2.276 views)
+//   /kosmos/{slug}/, /politika/{slug}/, ...
+// Το /news/ είναι ΜΟΝΟ η σελίδα-ροή (hub), δεν κρέμονται άρθρα από κάτω.
+// Το /articles/ υπάρχει αλλά είναι αμελητέο (102 views / 14 σελίδες).
 //
-// Ό,τι δεν είναι κάτω από /news/ (αρχική, σειρές, εκπομπές, live, webtv)
-// ΔΕΝ μετράει.
+// Ό,τι δεν είναι εδώ (/series, /live, /, /programma, /show, /movies)
+// είναι ψυχαγωγία και ΔΕΝ μετράει — είναι το 99% του site.
 
 export interface Section {
-  /** Μοναδικό id (πάει στο API ως ?section=...) */
   key: string;
-  /** Ετικέτα στο UI */
   label: string;
-  /** Πρόθεμα του URL path (BEGINS_WITH) — πάντα κάτω από /news/ */
+  /** Πρόθεμα URL path (BEGINS_WITH) */
   pathContains: string;
 }
 
-/** Ρίζα του ειδησεογραφικού scope. Με trailing slash ώστε να ΜΗΝ πιάνει /newscast/. */
-export const NEWS_ROOT = "/news/";
-
 export const SECTIONS: Section[] = [
-  { key: "koinonia", label: "Κοινωνία", pathContains: "/news/koinonia/" },
-  { key: "politika", label: "Πολιτική", pathContains: "/news/politika/" },
-  { key: "kosmos", label: "Διεθνή", pathContains: "/news/kosmos/" },
-  { key: "deltia", label: "Δελτία ειδήσεων", pathContains: "/news/deltia/" },
-  { key: "oikonomia", label: "Οικονομία", pathContains: "/news/oikonomia/" },
-  { key: "ugeia", label: "Υγεία", pathContains: "/news/ugeia/" },
-  { key: "athlitika", label: "Αθλητικά", pathContains: "/news/athlitika/" },
-  { key: "politismos", label: "Πολιτισμός", pathContains: "/news/politismos/" },
-  { key: "kairos", label: "Καιρός", pathContains: "/news/kairos/" },
-  { key: "video-moments", label: "Video Moments", pathContains: "/news/video-moments/" },
-  { key: "tech", label: "Τεχνολογία", pathContains: "/news/tech/" },
+  { key: "koinonia", label: "Κοινωνία", pathContains: "/koinonia/" },
+  { key: "newscast", label: "Δελτία ειδήσεων", pathContains: "/newscast/alpha-news" },
+  { key: "kosmos", label: "Διεθνή", pathContains: "/kosmos/" },
+  { key: "politika", label: "Πολιτική", pathContains: "/politika/" },
+  { key: "athlitika", label: "Αθλητικά", pathContains: "/athlitika/" },
+  { key: "oikonomia", label: "Οικονομία", pathContains: "/oikonomia/" },
+  { key: "politismos", label: "Πολιτισμός", pathContains: "/politismos/" },
+  { key: "ugeia", label: "Υγεία", pathContains: "/ugeia/" },
+  { key: "tech", label: "Τεχνολογία", pathContains: "/tech/" },
+];
+
+/** Καθολικό news scope. Όλα επαληθευμένα από το GA4 export. */
+export const NEWS_PATHS: string[] = [
+  "/news/",                 // η σελίδα-ροή
+  "/koinonia/",
+  "/newscast/alpha-news",   // σελίδα εκπομπής + broadcasts
+  "/kosmos/",
+  "/politika/",
+  "/athlitika/",
+  "/oikonomia/",
+  "/politismos/",
+  "/ugeia/",
+  "/tech/",
+  "/articles/",             // legacy, ελάχιστη κίνηση
+  "/video-moments/",
 ];
 
 export function findSection(key: string | null | undefined): Section | null {
@@ -39,9 +50,5 @@ export function findSection(key: string | null | undefined): Section | null {
   return SECTIONS.find((s) => s.key === key) ?? null;
 }
 
-// Διατηρείται για συμβατότητα: το καθολικό scope είναι πλέον ΕΝΑΣ κανόνας.
-export const NEWS_PATHS: string[] = [NEWS_ROOT];
-
-// Τίτλοι σελίδων που ΕΞΑΙΡΟΥΝΤΑΙ στο real-time (entertainment).
 export const REALTIME_EXCLUDE_TITLE =
   /ΕΠΕΙΣΟΔΙΟ|\bΣ\d+\s*-|^Σειρά|Σειρές|Εκπομπ|Live Streaming|Live TV|Πρόγραμμα\s*\||^AlphaTV\s*\|/i;
