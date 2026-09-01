@@ -112,61 +112,91 @@ export async function getRealtime(): Promise<RealtimeData> {
   if (!client) return mockRealtime();
 
   const newsScope = scopeFilter(null);
-  const today = [{ startDate: "today", endDate: "today" }];
+  // ΜΗΝ χρησιμοποιείς dateRanges: "today" εδώ. Το standard Data API έχει
+  // καθυστέρηση επεξεργασίας (ώρες) και το "today" μετριέται στη ΖΩΝΗ ΩΡΑΣ
+  // ΤΟΥ PROPERTY — οπότε επιστρέφει ελάχιστα ή μηδενικά δεδομένα και τα
+  // widgets έβγαζαν δεκάδες χρήστες αντί για χιλιάδες.
+  // Αντ' αυτού δουλεύουμε με τις ΤΕΛΕΥΤΑΙΕΣ ΩΡΕΣ ΠΟΥ ΕΧΟΥΝ ΟΝΤΩΣ ΔΕΔΟΜΕΝΑ,
+  // ίδια λογική με το rolling24h() — έτσι τα νούμερα του panel είναι
+  // συγκρίσιμα με την κάρτα KPI «Ενεργοί χρήστες».
+  const window2d = [{ startDate: "yesterday", endDate: "today" }];
 
-  // --- Μέρος Α: ΕΙΔΗΣΕΙΣ σήμερα (standard Data API — άφθονο quota, αξιόπιστο) ---
+  // --- Μέρος Α: ΕΙΔΗΣΕΙΣ (standard Data API — άφθονο quota, αξιόπιστο) ---
   let topPages: PageRow[];
   let byDevice: { device: string; users: number }[];
   let byCountry: { country: string; users: number }[];
   try {
-    const [pagesRes, deviceRes, countryRes] = await Promise.all([
-      // Top ειδήσεις ΤΕΛΕΥΤΑΙΑΣ ΩΡΑΣ — παίρνουμε ανά ώρα και κρατάμε τις 2
-      // πιο πρόσφατες ώρες που έχουν δεδομένα (ανθεκτικό σε ζώνη ώρας/καθυστέρηση).
+    // Στάδιο 1: ωριαία δεδομένα → ποιες ώρες έχουν πραγματικά κίνηση.
+    const [pagesRes] = await client.runReport({
+      property,
+      dateRanges: window2d,
+      dimensions: [
+        { name: "dateHour" },
+        { name: "pageTitle" },
+        { name: "pagePath" },
+      ],
+      metrics: [{ name: "screenPageViews" }],
+      dimensionFilter: newsScope,
+      orderBys: [{ dimension: { dimensionName: "dateHour" }, desc: true }],
+      limit: 2000,
+    });
+
+    const pageRows = pagesRes.rows ?? [];
+    const hoursWithData = [
+      ...new Set(pageRows.map((r) => r.dimensionValues?.[0]?.value ?? "")),
+    ]
+      .filter(Boolean)
+      .sort()
+      .reverse();
+
+    // Top άρθρα: οι 2 πιο πρόσφατες ώρες. Συσκευές/χώρες: τελευταίο 24ωρο.
+    const recentHours = hoursWithData.slice(0, 2);
+    const last24 = hoursWithData.slice(0, 24);
+
+    // Αν (για οποιονδήποτε λόγο) δεν βρέθηκαν ώρες, πέφτουμε πίσω σε σκέτο
+    // yesterday→today αντί να στείλουμε άδειο inListFilter (που σκάει).
+    const scopedLast24 = last24.length
+      ? {
+          andGroup: {
+            expressions: [
+              newsScope,
+              {
+                filter: {
+                  fieldName: "dateHour",
+                  inListFilter: { values: last24 },
+                },
+              },
+            ],
+          },
+        }
+      : newsScope;
+
+    // Στάδιο 2: συσκευές + χώρες, στο ίδιο 24ωρο παράθυρο.
+    const [[deviceRes], [countryRes]] = await Promise.all([
       client.runReport({
         property,
-        dateRanges: [{ startDate: "yesterday", endDate: "today" }],
-        dimensions: [
-          { name: "dateHour" },
-          { name: "pageTitle" },
-          { name: "pagePath" },
-        ],
-        metrics: [{ name: "screenPageViews" }],
-        dimensionFilter: newsScope,
-        orderBys: [{ dimension: { dimensionName: "dateHour" }, desc: true }],
-        limit: 2000,
-      }),
-      client.runReport({
-        property,
-        dateRanges: today,
+        dateRanges: window2d,
         dimensions: [{ name: "deviceCategory" }],
         metrics: [{ name: "activeUsers" }],
-        dimensionFilter: newsScope,
+        dimensionFilter: scopedLast24,
       }),
-      // Χώρες σήμερα. ΠΡΟΣΟΧΗ: μην βάζεις metricFilter σε αυτό το report.
-      // Το metricFilter εφαρμόζεται ΑΝΑ ΓΡΑΜΜΗ (ανά χώρα), όχι ανά session —
-      // και το averageSessionDuration καταρρέει όταν συνυπάρχει με φίλτρο
-      // pagePath, οπότε έκοβε ολόκληρες χώρες (Ελλάδα: 50 αντί για ~2.600).
+      // ΠΡΟΣΟΧΗ: μην βάζεις metricFilter σε αυτό το report. Εφαρμόζεται ΑΝΑ
+      // ΓΡΑΜΜΗ (ανά χώρα), όχι ανά session, και το averageSessionDuration
+      // καταρρέει όταν συνυπάρχει με φίλτρο pagePath — έκοβε ολόκληρες χώρες.
       // Το anti-bot φιλτράρισμα γίνεται σε επίπεδο GA4 property
       // (Admin → Data Settings → «Εξαίρεση γνωστών bots»), όχι εδώ.
       client.runReport({
         property,
-        dateRanges: today,
+        dateRanges: window2d,
         dimensions: [{ name: "country" }],
         metrics: [{ name: "activeUsers" }],
-        dimensionFilter: newsScope,
+        dimensionFilter: scopedLast24,
         orderBys: [{ metric: { metricName: "activeUsers" }, desc: true }],
         limit: 6,
       }),
     ]);
 
-    // Κράτα μόνο τις 2 πιο πρόσφατες ώρες που έχουν δεδομένα, άθροισε ανά τίτλο.
-    const pageRows = pagesRes[0].rows ?? [];
-    const recentHours = [
-      ...new Set(pageRows.map((r) => r.dimensionValues?.[0]?.value ?? "")),
-    ]
-      .sort()
-      .reverse()
-      .slice(0, 2);
+    // Άθροισε τα άρθρα των 2 πιο πρόσφατων ωρών ανά τίτλο.
     const agg = new Map<string, PageRow>();
     for (const row of pageRows) {
       const hour = row.dimensionValues?.[0]?.value ?? "";
@@ -181,7 +211,7 @@ export async function getRealtime(): Promise<RealtimeData> {
     topPages = [...agg.values()]
       .sort((a, b) => b.value - a.value)
       .slice(0, 8);
-    byDevice = (deviceRes[0].rows ?? [])
+    byDevice = (deviceRes.rows ?? [])
       .map((row) => ({
         device:
           DEVICE_GR[row.dimensionValues?.[0]?.value ?? ""] ||
@@ -190,7 +220,7 @@ export async function getRealtime(): Promise<RealtimeData> {
         users: num(row.metricValues?.[0]?.value),
       }))
       .sort((a, b) => b.users - a.users);
-    byCountry = (countryRes[0].rows ?? []).map((row) => ({
+    byCountry = (countryRes.rows ?? []).map((row) => ({
       country: row.dimensionValues?.[0]?.value || "(άγνωστη)",
       users: num(row.metricValues?.[0]?.value),
     }));
@@ -689,5 +719,89 @@ export async function getDebugStructure() {
     // 3) Πρώτο τμήμα του path (δείχνει τις "οικογένειες" URL).
     byHostname: await probe(["hostName"], 10),
     generatedAt: new Date().toISOString(),
+  };
+}
+
+// --------------------- ΔΙΑΓΝΩΣΤΙΚΑ (προσωρινό) ---------------------
+// Τρέχει την ίδια ερώτηση «χώρες» με διαφορετικές παραμέτρους, ώστε να
+// φανεί ΠΟΙΑ παράμετρος ρίχνει τα νούμερα. Χρησιμοποιείται από /api/debug.
+export async function debugCountries() {
+  if (!isConfigured()) return { error: "Δεν υπάρχουν credentials GA4" };
+  const client = buildClient();
+  if (!client) return { error: "Απέτυχε η δημιουργία client" };
+
+  const newsScope = scopeFilter(null);
+  type Row = {
+    dimensionValues?: ({ value?: string | null } | null)[] | null;
+    metricValues?: ({ value?: string | null } | null)[] | null;
+  };
+  const rowsOf = (r: { rows?: Row[] | null }): Row[] => r.rows ?? [];
+  const sum = (r: { rows?: Row[] | null }) =>
+    rowsOf(r).reduce((a, row) => a + num(row.metricValues?.[0]?.value), 0);
+  const list = (r: { rows?: Row[] | null }) =>
+    rowsOf(r).map((row) => ({
+      key: row.dimensionValues?.[0]?.value ?? "",
+      users: num(row.metricValues?.[0]?.value),
+    }));
+
+  const countryQuery = (
+    dateRanges: { startDate: string; endDate: string }[],
+    dimensionFilter: unknown
+  ) =>
+    client.runReport({
+      property,
+      dateRanges,
+      dimensions: [{ name: "country" }],
+      metrics: [{ name: "activeUsers" }],
+      dimensionFilter: dimensionFilter as never,
+      orderBys: [{ metric: { metricName: "activeUsers" }, desc: true }],
+      limit: 8,
+    });
+
+  const T = [{ startDate: "today", endDate: "today" }];
+  const Y = [{ startDate: "yesterday", endDate: "yesterday" }];
+  const W = [{ startDate: "7daysAgo", endDate: "today" }];
+
+  const [
+    todayScoped,
+    todayAll,
+    yesterdayScoped,
+    yesterdayAll,
+    weekScoped,
+    hourly,
+  ] = await Promise.all([
+    countryQuery(T, newsScope),
+    countryQuery(T, undefined),
+    countryQuery(Y, newsScope),
+    countryQuery(Y, undefined),
+    countryQuery(W, newsScope),
+    client.runReport({
+      property,
+      dateRanges: [{ startDate: "2daysAgo", endDate: "today" }],
+      dimensions: [{ name: "dateHour" }],
+      metrics: [{ name: "activeUsers" }],
+      dimensionFilter: newsScope,
+      orderBys: [{ dimension: { dimensionName: "dateHour" }, desc: true }],
+      limit: 12,
+    }),
+  ]);
+
+  return {
+    // Αν το "σήμερα" είναι πολύ μικρότερο από το "χθες", φταίει η
+    // καθυστέρηση επεξεργασίας / η ζώνη ώρας του property — όχι τα φίλτρα.
+    today_newsScope: { total: sum(todayScoped[0]), rows: list(todayScoped[0]) },
+    today_noFilter: { total: sum(todayAll[0]), rows: list(todayAll[0]) },
+    yesterday_newsScope: {
+      total: sum(yesterdayScoped[0]),
+      rows: list(yesterdayScoped[0]),
+    },
+    yesterday_noFilter: {
+      total: sum(yesterdayAll[0]),
+      rows: list(yesterdayAll[0]),
+    },
+    last7d_newsScope: { total: sum(weekScoped[0]), rows: list(weekScoped[0]) },
+    // Οι 12 πιο πρόσφατες ώρες με δεδομένα — δείχνει πού «κόβει» το GA4.
+    latestHours: list(hourly[0]),
+    serverTimeUtc: new Date().toISOString(),
   };
 }
