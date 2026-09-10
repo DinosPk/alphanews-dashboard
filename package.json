@@ -7,10 +7,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "cms:probe": "node --env-file-if-exists=.env.local --import tsx scripts/cms-probe.mts",
+    "report": "node --env-file-if-exists=.env.local --import tsx scripts/run-report.mts"
   },
   "dependencies": {
     "@google-analytics/data": "^4.12.0",
+    "google-auth-library": "^9.15.1",
     "next": "^16.2.7",
     "react": "19.0.0",
     "react-dom": "19.0.0",
@@ -20,6 +23,7 @@
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.0"
   }
 }

@@ -151,6 +151,104 @@ Moments `/video-moments/`, Δελτία ειδήσεων `/newscast/alpha-news`)
 > δύο διαδοχικές ανανεώσεις (κάθε 15″). Το κατώφλι (π.χ. +20 αναγνώστες) ρυθμίζεται
 > στο `app/page.tsx` (μεταβλητή `hot`).
 
+---
+
+## 📋 Ημερήσια καταμέτρηση άρθρων ανά συντάκτη
+
+Κάθε πρωί στις **09:00 ώρα Ελλάδας** ένα job διαβάζει όλα τα άρθρα του CMS
+(WordPress REST API) και γράφει σε Google Sheet πόσα άρθρα δημοσίευσε κάθε
+συντάκτης το **προηγούμενο 24ωρο (00:00–23:59)**.
+
+### Τι φτιάχνει στο Sheet
+
+Δύο tabs, που δημιουργούνται μόνα τους την πρώτη φορά:
+
+**«Καταμέτρηση»** — μία γραμμή ανά συντάκτη, μία στήλη ανά ημέρα (η πιο
+πρόσφατη πάντα στη στήλη B):
+
+| Συντάκτης | 09/09/2026 | 08/09/2026 |
+|---|---|---|
+| Μαρία Παπαδοπούλου | 7 | 5 |
+| Γιώργος Κωνσταντίνου | 3 | 6 |
+| **ΣΥΝΟΛΟ** | **10** | **11** |
+
+**«Αναλυτικά»** — ένα άρθρο ανά γραμμή (Ημερομηνία, Ώρα, Συντάκτης, Τίτλος,
+Ενότητα, URL). Είναι η πρώτη ύλη για ό,τι χτίσουμε στο επόμενο βήμα.
+
+Η εγγραφή είναι **idempotent**: αν το job ξανατρέξει για την ίδια ημέρα,
+ενημερώνει τα ίδια κελιά — δεν διπλογράφει ποτέ.
+
+### Ρύθμιση (μία φορά)
+
+1. **Φτιάξε ένα Google Sheet** (κενό) και κράτα το ID από το URL:
+   `https://docs.google.com/spreadsheets/d/`**`<ΑΥΤΟ_ΕΔΩ>`**`/edit`
+2. **Service account για το Sheets:**
+   - [console.cloud.google.com](https://console.cloud.google.com) → ενεργοποίησε
+     το **Google Sheets API**.
+   - **Credentials → Create Credentials → Service account** → **Keys → Add key
+     → JSON**.
+   - Άνοιξε το Sheet → **Share** → βάλε το `client_email` του service account
+     ως **Editor**. *(Χωρίς αυτό το βήμα το job παίρνει 403.)*
+3. **Συμπλήρωσε στο `.env.local`** (και στα Environment Variables του Vercel):
+   `SHEETS_SPREADSHEET_ID`, `GOOGLE_SHEETS_CLIENT_EMAIL`,
+   `GOOGLE_SHEETS_PRIVATE_KEY`, `CRON_SECRET`.
+4. **Deploy στο Vercel** — το `vercel.json` στήνει μόνο του το cron.
+
+### Δοκιμή πριν το deploy
+
+```bash
+# Μόνο ανάγνωση από το CMS — δεν αγγίζει το Sheet.
+npm run cms:probe             # χθες
+npm run cms:probe 2026-09-08  # συγκεκριμένη ημέρα
+
+# Πλήρης αναφορά: γράφει κανονικά στο Sheet.
+npm run report                # χθες
+npm run report 2026-09-08     # συμπλήρωση παλιότερης ημέρας
+```
+
+Το `npm run report` με ημερομηνία είναι και ο τρόπος να **γεμίσεις αναδρομικά**
+προηγούμενες μέρες — μπαίνουν στη σωστή χρονολογική στήλη.
+
+### Πώς κουμπώνει το cron στις 09:00
+
+Το Vercel Cron τρέχει **μόνο σε UTC**, ενώ η Ελλάδα αλλάζει ώρα δύο φορές τον
+χρόνο (UTC+2 χειμώνα, UTC+3 καλοκαίρι). Γι' αυτό το `vercel.json` χτυπάει το
+endpoint **και στις 06:00 και στις 07:00 UTC**, και το ίδιο το endpoint κρατάει
+μόνο την εκτέλεση που πέφτει πραγματικά στις 09:00 Ελλάδας — η άλλη γυρίζει
+`{ "skipped": true }` και δεν κάνει τίποτα. Έτσι δεν χρειάζεται καμία
+χειροκίνητη αλλαγή στις αλλαγές ώρας.
+
+Χειροκίνητο τρέξιμο σε production:
+
+```
+https://<το-app-σου>.vercel.app/api/cron/author-counts?secret=<CRON_SECRET>&force=1
+```
+
+Παράμετροι: `force=1` παρακάμπτει τον έλεγχο ώρας, `day=YYYY-MM-DD` ορίζει
+ποια ημέρα θα μετρηθεί.
+
+### Αν λείπουν ονόματα συντακτών
+
+Αν στο Sheet εμφανίζεται «Άγνωστος συντάκτης (#12)», το endpoint
+`/wp-json/wp/v2/users` του site είναι κλειστό. Λύση: φτιάξε **Application
+Password** από το WP admin (*Χρήστες → Το προφίλ μου → Application Passwords*)
+και βάλε `CMS_WP_USER` + `CMS_WP_APP_PASSWORD` στα env vars.
+
+### Αρχεία
+
+| Αρχείο | Ρόλος |
+|---|---|
+| `lib/cms.ts` | Ανάγνωση άρθρων από το WordPress REST API |
+| `lib/time.ts` | Ώρα Ελλάδας & όρια 24ώρου (με χειμερινή/θερινή) |
+| `lib/sheets.ts` | Εγγραφή στο Google Sheets (service account) |
+| `lib/authorReport.ts` | Η αναφορά: καταμέτρηση + δομή των δύο tabs |
+| `app/api/cron/author-counts/route.ts` | Το cron endpoint |
+| `scripts/cms-probe.mts` | Διαγνωστικό CMS (χωρίς εγγραφή) |
+| `scripts/run-report.mts` | Τοπικό τρέξιμο της αναφοράς |
+| `vercel.json` | Το πρόγραμμα του cron |
+
+---
+
 ## Ιδέες για επέκταση
 
 - Auto-refresh και στα ιστορικά (π.χ. κάθε 5′).
