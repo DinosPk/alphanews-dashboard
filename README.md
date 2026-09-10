@@ -180,8 +180,10 @@ Moments `/video-moments/`, Δελτία ειδήσεων `/newscast/alpha-news`)
 
 ### Ρύθμιση (μία φορά)
 
-1. **Φτιάξε ένα Google Sheet** (κενό) και κράτα το ID από το URL:
-   `https://docs.google.com/spreadsheets/d/`**`<ΑΥΤΟ_ΕΔΩ>`**`/edit`
+1. **Το Google Sheet** υπάρχει ήδη:
+   [alphanews — Καταμέτρηση άρθρων ανά συντάκτη](https://docs.google.com/spreadsheets/d/10HBDZe4IOnGv4lY1HIstWIYrMgWgv5ikXayaepsZyPM/edit)
+   Το ID του είναι ήδη συμπληρωμένο στο `.env.local.example`. *(Αν θελήσεις άλλο
+   Sheet, το ID είναι το μακρύ κομμάτι του URL ανάμεσα σε `/d/` και `/edit`.)*
 2. **Service account για το Sheets:**
    - [console.cloud.google.com](https://console.cloud.google.com) → ενεργοποίησε
      το **Google Sheets API**.
