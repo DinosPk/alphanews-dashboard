@@ -21,6 +21,16 @@ export const DETAIL_TAB = "Αναλυτικά";
 const TOTAL_LABEL = "ΣΥΝΟΛΟ";
 const AUTHOR_HEADER = "Συντάκτης";
 
+/** Το αποτέλεσμα του δοκιμαστικού περάσματος (χωρίς εγγραφή στο Sheet). */
+export interface PreviewResult {
+  dryRun: true;
+  day: string;
+  totalArticles: number;
+  authors: { authorName: string; count: number }[];
+  sample: { time: string; author: string; title: string; url: string }[];
+  generatedAt: string;
+}
+
 export interface ReportResult {
   /** Η ημέρα που μετρήθηκε, μορφή "YYYY-MM-DD" */
   day: string;
@@ -150,15 +160,44 @@ async function updateDetailTab(day: string, articles: Article[]): Promise<void> 
   await styleHeader(sheetId, 1);
 }
 
+function normalizeDay(day?: string): string {
+  const target = day ?? athensYesterday();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(target)) {
+    throw new Error(`Μη έγκυρη ημερομηνία «${target}» — περιμένω μορφή YYYY-MM-DD`);
+  }
+  return target;
+}
+
+/**
+ * Δοκιμαστικό πέρασμα: διαβάζει ΜΟΝΟ το CMS και επιστρέφει την καταμέτρηση,
+ * χωρίς να αγγίξει καθόλου το Google Sheet και χωρίς να χρειάζεται credentials
+ * για το Sheets. Χρησιμεύει για να επιβεβαιωθεί ότι το CMS απαντάει σωστά.
+ */
+export async function previewAuthorCounts(day?: string): Promise<PreviewResult> {
+  const target = normalizeDay(day);
+  const articles = await getArticlesForAthensDay(target);
+  return {
+    dryRun: true,
+    day: target,
+    totalArticles: articles.length,
+    authors: countByAuthor(articles),
+    // Δείγμα, για να φαίνεται με γυμνό μάτι ότι τα άρθρα είναι τα σωστά.
+    sample: articles.slice(0, 5).map((a) => ({
+      time: a.publishedAtAthens,
+      author: a.authorName,
+      title: a.title,
+      url: a.url,
+    })),
+    generatedAt: new Date().toISOString(),
+  };
+}
+
 /**
  * Τρέχει την αναφορά για μία ημέρα (default: χθες, ώρα Ελλάδας) και τη γράφει
  * στο Google Sheet.
  */
 export async function runAuthorCountsReport(day?: string): Promise<ReportResult> {
-  const target = day ?? athensYesterday();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(target)) {
-    throw new Error(`Μη έγκυρη ημερομηνία «${target}» — περιμένω μορφή YYYY-MM-DD`);
-  }
+  const target = normalizeDay(day);
 
   const articles = await getArticlesForAthensDay(target);
   const counts = countByAuthor(articles);

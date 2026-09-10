@@ -7,7 +7,7 @@
 // χειροκίνητη αλλαγή δύο φορές τον χρόνο.
 
 import { NextRequest, NextResponse } from "next/server";
-import { runAuthorCountsReport } from "@/lib/authorReport";
+import { previewAuthorCounts, runAuthorCountsReport } from "@/lib/authorReport";
 import { athensHour } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +38,21 @@ export async function GET(req: NextRequest) {
   }
 
   const params = req.nextUrl.searchParams;
+
+  // `dry=1` → μόνο ανάγνωση από το CMS, χωρίς εγγραφή στο Sheet. Είναι ο
+  // τρόπος να ελεγχθεί το CMS από τον browser, πριν μπουν καν τα credentials
+  // του Sheets. Δεν περνάει από το φίλτρο ώρας.
+  if (params.get("dry") === "1") {
+    try {
+      const preview = await previewAuthorCounts(params.get("day") ?? undefined);
+      return NextResponse.json(preview, { headers: { "Cache-Control": "no-store" } });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[author-counts] dry run απέτυχε:", message);
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
+  }
+
   // `force=1` παρακάμπτει το φίλτρο ώρας (χειροκίνητο τρέξιμο/δοκιμή).
   const force = params.get("force") === "1";
   const hour = athensHour();

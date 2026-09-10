@@ -227,7 +227,16 @@ https://<το-app-σου>.vercel.app/api/cron/author-counts?secret=<CRON_SECRET>
 ```
 
 Παράμετροι: `force=1` παρακάμπτει τον έλεγχο ώρας, `day=YYYY-MM-DD` ορίζει
-ποια ημέρα θα μετρηθεί.
+ποια ημέρα θα μετρηθεί, `dry=1` κάνει **δοκιμαστικό πέρασμα** — διαβάζει μόνο
+το CMS και γυρίζει την καταμέτρηση σε JSON, **χωρίς να γράψει στο Sheet και
+χωρίς να χρειάζεται credentials για το Sheets**:
+
+```
+https://<το-app-σου>.vercel.app/api/cron/author-counts?secret=<CRON_SECRET>&dry=1
+```
+
+Είναι το αντίστοιχο του `npm run cms:probe` για όποιον δουλεύει μόνο από
+browser — και ο σωστός πρώτος έλεγχος, γιατί απομονώνει το CMS από το Sheet.
 
 ### Αν λείπουν ονόματα συντακτών
 
