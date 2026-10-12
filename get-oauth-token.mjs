@@ -25,7 +25,11 @@ const oauth = new OAuth2Client(clientId, clientSecret, redirectUri);
 const authUrl = oauth.generateAuthUrl({
   access_type: "offline",
   prompt: "consent", // αναγκάζει να επιστραφεί refresh_token
-  scope: ["https://www.googleapis.com/auth/analytics.readonly"],
+  // analytics.readonly → GA4 · webmasters.readonly → Search Console (SEO tags)
+  scope: [
+    "https://www.googleapis.com/auth/analytics.readonly",
+    "https://www.googleapis.com/auth/webmasters.readonly",
+  ],
 });
 
 console.log("AUTH_URL:" + authUrl);

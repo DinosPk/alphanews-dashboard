@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   RealtimeData,
@@ -226,6 +227,9 @@ export default function Page() {
         >
           Μηνιαία στοιχεία
         </button>
+        <Link href="/tags" className="view-tab link">
+          SEO tags
+        </Link>
       </div>
 
       {view === "overview" && (
