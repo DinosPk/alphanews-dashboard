@@ -73,14 +73,28 @@ interface Context {
 /** Πλήθος άρθρων για ταξινόμηση (0 όταν είναι άγνωστο). */
 const cnt = (t: { count: number | null }) => t.count ?? 0;
 
-/** «ΦΩΤΙΑ - Alpha TV», «Αρχεία ΦΩΤΙΑ | AlphaTV», «Fotia Archives» → όνομα tag. */
+/**
+ * Όνομα tag από τον <title> της σελίδας tag: «ΦΩΤΙΑ - Alpha News»,
+ * «Alpha News | ΦΩΤΙΑ», «Αρχεία ΦΩΤΙΑ», «Fotia Archives - Σελίδα 2» → «ΦΩΤΙΑ».
+ * Πετάει τα κομμάτια που είναι μόνο brand· αν δεν μείνει τίποτα → "" (κρατάμε το slug).
+ */
+const BRAND_TITLE = new Set(
+  ["alpha news", "alphanews", "alpha tv", "alphatv", "alpha", "alphatv gr", "alpha tv gr", "αλφα", "άλφα"].map(
+    (b) => exactKey(b)
+  )
+);
 function cleanTagTitle(title: string): string {
-  return title
-    .split(/\s+[|–—-]\s+/)[0]
-    .replace(/^(Αρχεία|Ετικέτα|Tag)\s*:?\s*/i, "")
-    .replace(/\s+(Archives|Αρχεία)$/i, "")
-    .replace(/\s*(Σελίδα|Page)\s+\d+.*$/i, "")
-    .trim();
+  const parts = title
+    .split(/\s+[|–—-]\s+|\s*\|\s*/)
+    .map((p) =>
+      p
+        .replace(/^(Αρχεία|Ετικέτα|Tag)\s*:?\s*/i, "")
+        .replace(/\s+(Archives|Αρχεία)$/i, "")
+        .replace(/\s*(Σελίδα|Page)\s+\d+.*$/i, "")
+        .trim()
+    )
+    .filter((p) => p && !BRAND_TITLE.has(exactKey(p)));
+  return parts[0] ?? "";
 }
 
 function errMsg(e: unknown) {
