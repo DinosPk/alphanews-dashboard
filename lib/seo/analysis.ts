@@ -470,6 +470,13 @@ function computeGapRows(ctx: Context): GapRow[] {
     const sig = (t: string) =>
       t.split(" ").filter((w) => !/^\d+$/.test(w) && !ctx.byFuzzy.has(fuzzyKey(w)));
     const mine = new Set(sig(term));
+    // Κομμάτι άλλου όρου: ≥70% των εμφανίσεών του προέρχονται από queries που
+    // ήδη ανήκουν σε επιλεγμένο όρο («ιστορια» μέσα στο «ριφιφι πραγματικη ιστορια»).
+    const shared = (c: Agg) => {
+      const qs = new Set(c.examples.map((e) => e.q));
+      return a.examples.reduce((sum, e) => sum + (qs.has(e.q) ? e.imp : 0), 0);
+    };
+    if (chosen.some(([, ca]) => shared(ca) >= 0.7 * a.impressions)) continue;
     const i = chosen.findIndex(([c]) => sig(c).some((w) => mine.has(w)));
     if (i === -1) {
       chosen.push([term, a]);
