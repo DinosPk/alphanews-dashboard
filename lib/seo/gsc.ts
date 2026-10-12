@@ -11,7 +11,8 @@
 import { OAuth2Client, GoogleAuth } from "google-auth-library";
 import { cached } from "./cache";
 
-const SITE = process.env.GSC_SITE_URL || "sc-domain:alphatv.gr";
+// Καθάρισμα: κενά, εισαγωγικά και αλλαγές γραμμής που μπαίνουν κατά την επικόλληση.
+const SITE = (process.env.GSC_SITE_URL || "sc-domain:alphatv.gr").trim().replace(/^["']|["']$/g, "").trim();
 const SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
 const API = "https://searchconsole.googleapis.com/webmasters/v3/sites";
 
@@ -108,7 +109,13 @@ async function query(
         res.status === 403
           ? " (ο λογαριασμός δεν έχει πρόσβαση στο property ή λείπει το scope webmasters.readonly)"
           : "";
-      throw new Error(`GSC ${res.status}${hint}: ${txt.slice(0, 160)}`);
+      let msg = txt;
+      try {
+        msg = (JSON.parse(txt) as { error?: { message?: string } }).error?.message ?? txt;
+      } catch {
+        /* όχι JSON */
+      }
+      throw new Error(`GSC ${res.status}${hint}: ${msg.slice(0, 220)} [site=${SITE}]`);
     }
     const json = (await res.json()) as {
       rows?: { keys: string[]; clicks: number; impressions: number; position: number }[];
