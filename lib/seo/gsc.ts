@@ -12,7 +12,11 @@ import { OAuth2Client, GoogleAuth } from "google-auth-library";
 import { cached } from "./cache";
 
 // Καθάρισμα: κενά, εισαγωγικά και αλλαγές γραμμής που μπαίνουν κατά την επικόλληση.
-const SITE = (process.env.GSC_SITE_URL || "sc-domain:alphatv.gr").trim().replace(/^["']|["']$/g, "").trim();
+const SITE = (() => {
+  const raw = (process.env.GSC_SITE_URL || "sc-domain:alphatv.gr").trim().replace(/^["']|["']$/g, "").trim();
+  // URL-prefix property: η Google θέλει ΑΚΡΙΒΩΣ τη μορφή «https://www.alphatv.gr/» (με / στο τέλος).
+  return /^https?:\/\//i.test(raw) && !raw.endsWith("/") ? `${raw}/` : raw;
+})();
 const SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
 const API = "https://searchconsole.googleapis.com/webmasters/v3/sites";
 
