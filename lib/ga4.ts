@@ -805,3 +805,36 @@ export async function debugCountries() {
     serverTimeUtc: new Date().toISOString(),
   };
 }
+
+// ----------------------------- SEO TAGS -----------------------------
+/**
+ * Προβολές σελίδων tag (π.χ. /tag/...) τις τελευταίες 28 ημέρες.
+ * Επιστρέφει null αν το GA4 δεν είναι ρυθμισμένο. Κλειδί = pagePath.
+ */
+export async function getTagPageViews(
+  tagBase: string
+): Promise<Map<string, number> | null> {
+  if (!isConfigured()) return null;
+  const client = buildClient();
+  if (!client) return null;
+  const [res] = await client.runReport({
+    property,
+    dateRanges: [{ startDate: "28daysAgo", endDate: "yesterday" }],
+    dimensions: [{ name: "pagePath" }],
+    metrics: [{ name: "screenPageViews" }],
+    dimensionFilter: beginsWith(tagBase),
+    orderBys: [{ metric: { metricName: "screenPageViews" }, desc: true }],
+    limit: 25000,
+  });
+  const out = new Map<string, number>();
+  for (const row of res.rows ?? []) {
+    const path = row.dimensionValues?.[0]?.value ?? "";
+    // Ενοποίηση /tag/x και /tag/x/ και ?page=2
+    const key = path
+      .split("?")[0]
+      .replace(/\/page\/\d+\/?$/, "/")
+      .replace(/\/?$/, "/");
+    out.set(key, (out.get(key) ?? 0) + num(row.metricValues?.[0]?.value));
+  }
+  return out;
+}

@@ -151,6 +151,41 @@ Moments `/video-moments/`, Δελτία ειδήσεων `/newscast/alpha-news`)
 > δύο διαδοχικές ανανεώσεις (κάθε 15″). Το κατώφλι (π.χ. +20 αναγνώστες) ρυθμίζεται
 > στο `app/page.tsx` (μεταβλητή `hot`).
 
+## 🏷️ SEO tags (`/tags`)
+
+Εργαλείο για τα tags του alphatv.gr, με τέσσερις καρτέλες:
+
+| Καρτέλα | Τι κάνει |
+|---|---|
+| **Audit tags** | Όλα τα tags με άρθρα, clicks/impressions (GSC) και views (GA4) της σελίδας tag, και πρόταση ενέργειας: συγχώνευση διπλοτύπων, noindex/διαγραφή για ορφανά & thin, topic hub για όσα έχουν όγκο και ζήτηση, διόρθωση για ονόματα ΟΛΟ ΚΕΦΑΛΑΙΑ. Εξαγωγή CSV. |
+| **Πρόταση tags** | Δίνεις URL άρθρου (ή τίτλο + κείμενο πριν τη δημοσίευση) και παίρνεις τα υπάρχοντα tags που ταιριάζουν, με προτεραιότητα σε όσα έχουν ζήτηση στο Google, και νέα tags που αξίζει να δημιουργηθούν. |
+| **Ζήτηση χωρίς tag** | Όροι από τα queries του Search Console (28 ημέρες) που δεν καλύπτονται από κανένα tag. Υποψήφια νέα tags/hubs. Δίπλα, τα tags με τη μεγαλύτερη ζήτηση. |
+| **Trends τώρα** | Google Trends Ελλάδας και αν το κάθε θέμα έχει ήδη tag στο site. |
+
+### Πηγές δεδομένων
+
+- **WordPress REST API** (`/wp-json/wp/v2/tags`, `/posts`): δημόσιο, δεν θέλει ρύθμιση.
+- **Google Search Console**: θέλει refresh token με scope `webmasters.readonly`.
+  Ξανατρέξε `node get-oauth-token.mjs <CLIENT_ID> <CLIENT_SECRET>` (ζητάει πλέον και GA4 και GSC scope)
+  με λογαριασμό που έχει πρόσβαση στο GSC property, και ενημέρωσε το `GA4_OAUTH_REFRESH_TOKEN`
+  στο Vercel (ή βάλε το νέο token στο `GSC_OAUTH_REFRESH_TOKEN`). Στο Google Cloud project πρέπει
+  να είναι ενεργό το **Google Search Console API**. Όρισε και `GSC_SITE_URL`
+  (`sc-domain:alphatv.gr` για domain property ή `https://www.alphatv.gr/` για URL-prefix).
+- **GA4**: τα υπάρχοντα credentials του dashboard.
+- **Google Trends**: δημόσιο RSS (`trends.google.com/trending/rss?geo=GR`).
+
+Χωρίς GSC το audit και οι προτάσεις δουλεύουν, αλλά χωρίς «ζήτηση». Αν το WordPress API δεν απαντά
+(π.χ. firewall), όλο το module δείχνει DEMO δεδομένα — ποτέ ανάμειξη πραγματικών με ψεύτικα.
+
+### Πώς βρίσκει διπλότυπα
+
+`lib/seo/normalize.ts`: **σίγουρο** = ίδιο μετά από πεζά/τόνους («ΦΩΤΙΑ» = «Φωτιά»).
+**Πιθανό** = ίδιο μετά από greeklish + αφαίρεση καταλήξεων («Πυρκαγιές» ≈ «Πυρκαγιά», «AEK» ≈ «ΑΕΚ»,
+«Mundial 2026» ≈ «ΜΟΥΝΤΙΑΛ 2026»). **Σύντομη μορφή** = επώνυμο δίπλα σε πλήρες όνομα
+(«Σαμαράς» ⊂ «Αντώνης Σαμαράς»). Τα όρια για hub ρυθμίζονται με `SEO_HUB_MIN_POSTS` / `SEO_HUB_MIN_DEMAND`.
+
+Cache: tags 30′, GSC 6 ώρες, Trends 10′ (ανά serverless instance).
+
 ## Ιδέες για επέκταση
 
 - Auto-refresh και στα ιστορικά (π.χ. κάθε 5′).
