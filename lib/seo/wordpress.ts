@@ -8,7 +8,11 @@ import { cached } from "./cache";
 export const WP_BASE = (process.env.WP_BASE_URL || "https://www.alphatv.gr").replace(/\/$/, "");
 const PER_PAGE = 100;
 const MAX_PAGES = Number(process.env.WP_TAGS_MAX_PAGES || 200); // 20.000 tags
-const UA = "alphanews-dashboard/seo-tags";
+// Το firewall του alphatv.gr απαντά 404 σε μη-browser User-Agent, γι' αυτό
+// στέλνουμε κανονικό UA browser (μόνο GET σε δημόσια endpoints, με ήπιο ρυθμό).
+const UA =
+  process.env.WP_USER_AGENT ||
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36";
 
 export function decodeEntities(s: string): string {
   return s
@@ -51,7 +55,11 @@ interface RawTag {
 
 async function getJson<T>(url: string): Promise<{ data: T; totalPages: number }> {
   const res = await fetch(url, {
-    headers: { Accept: "application/json", "User-Agent": UA },
+    headers: {
+      Accept: "application/json, text/plain, */*",
+      "Accept-Language": "el-GR,el;q=0.9,en;q=0.8",
+      "User-Agent": UA,
+    },
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`WordPress ${res.status} στο ${url.replace(WP_BASE, "")}`);
