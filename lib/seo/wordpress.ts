@@ -53,16 +53,45 @@ interface RawTag {
   link: string;
 }
 
+// Το REST API του alphatv.gr απαντά ΜΟΝΟ σε συνδεδεμένους χρήστες
+// (σφάλμα 404 «api_error_access» χωρίς login). Σύνδεση με WordPress
+// Application Password: wp-admin → Users → Profile → Application Passwords.
+const WP_USER = process.env.WP_APP_USER;
+const WP_PASS = process.env.WP_APP_PASSWORD;
+
+function authHeader(): Record<string, string> {
+  if (!WP_USER || !WP_PASS) return {};
+  const token = Buffer.from(`${WP_USER}:${WP_PASS.replace(/\s+/g, "")}`).toString("base64");
+  return { Authorization: `Basic ${token}` };
+}
+
 async function getJson<T>(url: string): Promise<{ data: T; totalPages: number }> {
   const res = await fetch(url, {
     headers: {
       Accept: "application/json, text/plain, */*",
       "Accept-Language": "el-GR,el;q=0.9,en;q=0.8",
       "User-Agent": UA,
+      ...authHeader(),
     },
     cache: "no-store",
   });
-  if (!res.ok) throw new Error(`WordPress ${res.status} στο ${url.replace(WP_BASE, "")}`);
+  if (!res.ok) {
+    let code = "";
+    try {
+      code = ((await res.json()) as { code?: string }).code ?? "";
+    } catch {
+      /* όχι JSON */
+    }
+    const hint =
+      code === "api_error_access"
+        ? WP_USER
+          ? " — το Application Password δεν έγινε δεκτό (έλεγξε WP_APP_USER / WP_APP_PASSWORD)"
+          : " — το REST API θέλει login: όρισε WP_APP_USER και WP_APP_PASSWORD"
+        : res.status === 401
+        ? " — λάθος username ή Application Password"
+        : "";
+    throw new Error(`WordPress ${res.status}${code ? ` (${code})` : ""}${hint}`);
+  }
   const totalPages = Number(res.headers.get("x-wp-totalpages") || 1);
   return { data: (await res.json()) as T, totalPages };
 }

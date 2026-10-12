@@ -164,7 +164,9 @@ Moments `/video-moments/`, Δελτία ειδήσεων `/newscast/alpha-news`)
 
 ### Πηγές δεδομένων
 
-- **WordPress REST API** (`/wp-json/wp/v2/tags`, `/posts`): δημόσιο, δεν θέλει ρύθμιση.
+- **WordPress REST API** (`/wp-json/wp/v2/tags`, `/posts`): στο alphatv.gr απαντά μόνο σε
+  συνδεδεμένους χρήστες, οπότε θέλει `WP_APP_USER` + `WP_APP_PASSWORD` (Application Password από
+  wp-admin → Users → Profile → Application Passwords). Προτίμησε ξεχωριστό χρήστη με ρόλο Subscriber.
 - **Google Search Console**: θέλει refresh token με scope `webmasters.readonly`.
   Ξανατρέξε `node get-oauth-token.mjs <CLIENT_ID> <CLIENT_SECRET>` (ζητάει πλέον και GA4 και GSC scope)
   με λογαριασμό που έχει πρόσβαση στο GSC property, και ενημέρωσε το `GA4_OAUTH_REFRESH_TOKEN`
