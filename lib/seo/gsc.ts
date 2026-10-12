@@ -165,15 +165,23 @@ export function fetchQueries(): Promise<GscRow[]> {
     const max = Number(process.env.GSC_MAX_QUERY_PAGES || 100000);
     const raw = await query(["query", "page"], { maxRows: max });
     const allowed = [...NEWS_PATHS.filter((p) => p !== "/news/"), "/tag/"];
-    const agg = new Map<string, { clicks: number; impressions: number; posSum: number }>();
+    // Για κάθε query: πόσες εμφανίσεις πήγαν σε ειδήσεις/tags και πόσες αλλού (σειρές, εκπομπές).
+    const agg = new Map<string, { clicks: number; impressions: number; posSum: number; other: number }>();
     for (const r of raw) {
+      const a = agg.get(r.keys[0]) ?? { clicks: 0, impressions: 0, posSum: 0, other: 0 };
       const path = pathOf(r.keys[1]);
-      if (!allowed.some((p) => path.startsWith(p))) continue;
-      const a = agg.get(r.keys[0]) ?? { clicks: 0, impressions: 0, posSum: 0 };
-      a.clicks += r.clicks;
-      a.impressions += r.impressions;
-      a.posSum += r.position * r.impressions;
+      if (allowed.some((p) => path.startsWith(p))) {
+        a.clicks += r.clicks;
+        a.impressions += r.impressions;
+        a.posSum += r.position * r.impressions;
+      } else {
+        a.other += r.impressions;
+      }
       agg.set(r.keys[0], a);
+    }
+    // Κράτα μόνο queries με κυρίως «ειδησεογραφική» πρόθεση (≥ 60% των εμφανίσεων σε ειδήσεις/tags).
+    for (const [k, a] of agg) {
+      if (!a.impressions || a.impressions < 0.6 * (a.impressions + a.other)) agg.delete(k);
     }
     return [...agg.entries()]
       .map(([key, a]) => ({
