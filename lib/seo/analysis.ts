@@ -350,7 +350,8 @@ export async function getAudit(): Promise<AuditData> {
     const isHub =
       t.count !== null
         ? t.count >= HUB_MIN_POSTS && (dem >= HUB_MIN_DEMAND || perf.clicks >= 100)
-        : dem >= HUB_MIN_DEMAND && (perf.clicks >= 100 || perf.views >= 1000);
+        : // Χωρίς πλήθος άρθρων: ζήτηση στο Google + ενεργό θέμα (νέο άρθρο τον τελευταίο μήνα)
+          dem >= HUB_MIN_DEMAND && ((age !== null && age <= 30) || perf.clicks >= 100 || perf.views >= 1000);
     if (isOrphan) orphans++;
     if (isThin) thin++;
 
@@ -377,7 +378,8 @@ export async function getAudit(): Promise<AuditData> {
       reason =
         (t.count !== null
           ? `${t.count} άρθρα & ζήτηση ${dem.toLocaleString("el-GR")} impressions`
-          : `Ζήτηση ${dem.toLocaleString("el-GR")} impressions & ${perf.views.toLocaleString("el-GR")} views`) +
+          : `Ζήτηση ${dem.toLocaleString("el-GR")} impressions στο Google` +
+            (age !== null && age <= 30 ? ` & νέο άρθρο πριν ${Math.max(0, Math.round(age))} ημ.` : "")) +
         " — κάν' το topic hub (intro κείμενο, H1, evergreen)";
     } else if (allCaps) {
       action = "fix-case";
