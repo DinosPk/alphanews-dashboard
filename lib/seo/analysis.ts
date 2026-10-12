@@ -38,7 +38,7 @@ const HUB_MIN_POSTS = Number(process.env.SEO_HUB_MIN_POSTS || 20);
 const HUB_MIN_DEMAND = Number(process.env.SEO_HUB_MIN_DEMAND || 5000);
 const THIN_MAX_POSTS = 4;
 const THIN_MAX_VIEWS = 50;
-const BRAND_TERMS = (process.env.SEO_BRAND_TERMS || "alpha,alphatv,alphanews,άλφα,αλφα,alpha news")
+const BRAND_TERMS = (process.env.SEO_BRAND_TERMS || "alpha,alfa,alphatv,alphanews,άλφα,αλφα,alpha news")
   .split(",")
   .map((t) => exactKey(t))
   .filter(Boolean);

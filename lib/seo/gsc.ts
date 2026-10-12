@@ -10,6 +10,7 @@
 
 import { OAuth2Client, GoogleAuth } from "google-auth-library";
 import { cached } from "./cache";
+import { NEWS_PATHS } from "../sections";
 
 // Καθάρισμα: κενά, εισαγωγικά και αλλαγές γραμμής που μπαίνουν κατά την επικόλληση.
 const SITE = (() => {
@@ -75,19 +76,26 @@ export function gscPeriod() {
   return { start: iso(start), end: iso(end) };
 }
 
+interface RawRow {
+  keys: string[];
+  clicks: number;
+  impressions: number;
+  position: number;
+}
+
 async function query(
-  dimension: "query" | "page",
+  dimensions: ("query" | "page")[],
   opts: { pageContains?: string; maxRows: number }
-): Promise<GscRow[]> {
+): Promise<RawRow[]> {
   const token = await accessToken();
   const { start, end } = gscPeriod();
-  const rows: GscRow[] = [];
+  const rows: RawRow[] = [];
   const pageSize = 25000;
   for (let startRow = 0; startRow < opts.maxRows; startRow += pageSize) {
     const body: Record<string, unknown> = {
       startDate: start,
       endDate: end,
-      dimensions: [dimension],
+      dimensions,
       rowLimit: Math.min(pageSize, opts.maxRows - startRow),
       startRow,
       dataState: "all",
@@ -122,39 +130,71 @@ async function query(
       // Η τιμή του site ΠΡΩΤΗ, σε JSON (φαίνονται κενά/εισαγωγικά/κρυφοί χαρακτήρες).
       throw new Error(`GSC ${res.status} site=${JSON.stringify(SITE)}${hint}: ${msg.slice(0, 160)}`);
     }
-    const json = (await res.json()) as {
-      rows?: { keys: string[]; clicks: number; impressions: number; position: number }[];
-    };
+    const json = (await res.json()) as { rows?: RawRow[] };
     const batch = json.rows ?? [];
-    for (const r of batch) {
-      rows.push({
-        key: r.keys[0],
-        clicks: r.clicks,
-        impressions: r.impressions,
-        position: r.position,
-      });
-    }
+    rows.push(...batch);
     if (batch.length < pageSize) break;
   }
   return rows;
 }
 
-/** Top queries (28 ημέρες), cache 6 ωρών. */
+const pathOf = (u: string) => {
+  try {
+    return new URL(u).pathname;
+  } catch {
+    return u;
+  }
+};
+
+/**
+ * Top queries (28 ημέρες), cache 6 ωρών.
+ *
+ * Τα tags αφορούν τις ειδήσεις, ενώ το μεγαλύτερο μέρος της αναζήτησης του
+ * alphatv.gr είναι σειρές/εκπομπές. Γι' αυτό (εκτός αν SEO_NEWS_ONLY=false)
+ * κρατάμε μόνο τα queries που οδηγούν σε σελίδες ειδήσεων (NEWS_PATHS του
+ * dashboard) ή σε σελίδες tag.
+ */
 export function fetchQueries(): Promise<GscRow[]> {
-  const max = Number(process.env.GSC_MAX_QUERIES || 25000);
-  return cached("gsc:queries", 6 * 3600 * 1000, () => query("query", { maxRows: max }));
+  const newsOnly = process.env.SEO_NEWS_ONLY !== "false";
+  return cached(`gsc:queries:${newsOnly}`, 6 * 3600 * 1000, async () => {
+    if (!newsOnly) {
+      const max = Number(process.env.GSC_MAX_QUERIES || 25000);
+      const raw = await query(["query"], { maxRows: max });
+      return raw.map((r) => ({ key: r.keys[0], clicks: r.clicks, impressions: r.impressions, position: r.position }));
+    }
+    const max = Number(process.env.GSC_MAX_QUERY_PAGES || 100000);
+    const raw = await query(["query", "page"], { maxRows: max });
+    const allowed = [...NEWS_PATHS.filter((p) => p !== "/news/"), "/tag/"];
+    const agg = new Map<string, { clicks: number; impressions: number; posSum: number }>();
+    for (const r of raw) {
+      const path = pathOf(r.keys[1]);
+      if (!allowed.some((p) => path.startsWith(p))) continue;
+      const a = agg.get(r.keys[0]) ?? { clicks: 0, impressions: 0, posSum: 0 };
+      a.clicks += r.clicks;
+      a.impressions += r.impressions;
+      a.posSum += r.position * r.impressions;
+      agg.set(r.keys[0], a);
+    }
+    return [...agg.entries()]
+      .map(([key, a]) => ({
+        key,
+        clicks: a.clicks,
+        impressions: a.impressions,
+        position: a.impressions ? a.posSum / a.impressions : 0,
+      }))
+      .sort((x, y) => y.impressions - x.impressions);
+  });
 }
 
 /** Απόδοση σελίδων tag (28 ημέρες), cache 6 ωρών. Κλειδί = path. */
 export function fetchTagPages(tagBase: string): Promise<GscRow[]> {
   return cached(`gsc:tagpages:${tagBase}`, 6 * 3600 * 1000, async () => {
-    const rows = await query("page", { pageContains: tagBase, maxRows: 25000 });
-    return rows.map((r) => {
-      try {
-        return { ...r, key: new URL(r.key).pathname };
-      } catch {
-        return r;
-      }
-    });
+    const rows = await query(["page"], { pageContains: tagBase, maxRows: 25000 });
+    return rows.map((r) => ({
+      key: pathOf(r.keys[0]),
+      clicks: r.clicks,
+      impressions: r.impressions,
+      position: r.position,
+    }));
   });
 }

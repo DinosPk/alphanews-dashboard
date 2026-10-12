@@ -191,6 +191,10 @@ Moments `/video-moments/`, Δελτία ειδήσεων `/newscast/alpha-news`)
 «Mundial 2026» ≈ «ΜΟΥΝΤΙΑΛ 2026»). **Σύντομη μορφή** = επώνυμο δίπλα σε πλήρες όνομα
 («Σαμαράς» ⊂ «Αντώνης Σαμαράς»). Τα όρια για hub ρυθμίζονται με `SEO_HUB_MIN_POSTS` / `SEO_HUB_MIN_DEMAND`.
 
+Η ζήτηση υπολογίζεται **μόνο από queries που οδηγούν σε σελίδες ειδήσεων** (τα `NEWS_PATHS` του
+dashboard) ή σε σελίδες tag — αλλιώς τη λίστα την κατακλύζουν σειρές και εκπομπές. Για όλο το site:
+`SEO_NEWS_ONLY=false`.
+
 Cache: tags 30′, GSC 6 ώρες, Trends 10′ (ανά serverless instance).
 
 ## Ιδέες για επέκταση
