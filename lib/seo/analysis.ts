@@ -98,7 +98,7 @@ function cleanTagTitle(title: string): string {
 }
 
 function errMsg(e: unknown) {
-  return (e instanceof Error ? e.message : String(e)).slice(0, 200);
+  return (e instanceof Error ? e.message : String(e)).slice(0, 400);
 }
 
 function indexTags(raw: WpTag[]) {

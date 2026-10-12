@@ -119,7 +119,8 @@ async function query(
       } catch {
         /* όχι JSON */
       }
-      throw new Error(`GSC ${res.status}${hint}: ${msg.slice(0, 220)} [site=${SITE}]`);
+      // Η τιμή του site ΠΡΩΤΗ, σε JSON (φαίνονται κενά/εισαγωγικά/κρυφοί χαρακτήρες).
+      throw new Error(`GSC ${res.status} site=${JSON.stringify(SITE)}${hint}: ${msg.slice(0, 160)}`);
     }
     const json = (await res.json()) as {
       rows?: { keys: string[]; clicks: number; impressions: number; position: number }[];
