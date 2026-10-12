@@ -17,7 +17,9 @@ type Tab = "audit" | "suggest" | "gap" | "trending";
 
 const SITE = "https://www.alphatv.gr";
 const nf = new Intl.NumberFormat("el-GR");
-const fmt = (n: number) => nf.format(Math.round(n));
+const fmt = (n: number | null | undefined) => (n == null ? "—" : nf.format(Math.round(n)));
+const fmtDate = (iso?: string) =>
+  iso ? new Date(iso).toLocaleDateString("el-GR", { day: "2-digit", month: "2-digit", year: "2-digit" }) : "—";
 
 const ACTION_LABEL: Record<TagAction, string> = {
   merge: "Συγχώνευση",
@@ -34,10 +36,20 @@ function SourcesBar({ s, demo }: { s?: SourceStatus; demo?: boolean }) {
   const chip = (label: string, state?: string, err?: string) => {
     if (!state) return null;
     const cls =
-      state === "ok" ? "ok" : state === "demo" ? "demo" : state === "not-configured" ? "off" : "err";
+      state === "ok"
+        ? "ok"
+        : state === "sitemap"
+        ? "warn"
+        : state === "demo"
+        ? "demo"
+        : state === "not-configured"
+        ? "off"
+        : "err";
     const txt =
       state === "ok"
         ? "συνδεδεμένο"
+        : state === "sitemap"
+        ? "μέσω sitemap"
         : state === "demo"
         ? "demo"
         : state === "not-configured"
@@ -56,6 +68,11 @@ function SourcesBar({ s, demo }: { s?: SourceStatus; demo?: boolean }) {
       {chip("GA4", s.ga4, s.errors?.ga4)}
       {chip("Google Trends", s.trends, s.errors?.trends)}
       {demo && <span className="muted">Το WordPress API δεν απάντησε — εμφανίζονται ενδεικτικά δεδομένα.</span>}
+      {!demo && s.wordpress === "sitemap" && (
+        <span className="muted">
+          Τα tags έρχονται από το δημόσιο sitemap: χωρίς πλήθος άρθρων, ονόματα από τους τίτλους στο GA4.
+        </span>
+      )}
       {!demo && s.gsc === "not-configured" && (
         <span className="muted">Χωρίς Search Console δεν υπολογίζεται ζήτηση (δες README → SEO tags).</span>
       )}
@@ -148,9 +165,9 @@ function AuditView() {
 
   const exportCsv = () =>
     downloadCsv("alphatv-tags-audit.csv", [
-      ["id", "tag", "slug", "url", "άρθρα", "gsc_clicks", "gsc_impressions", "ga4_views", "ζήτηση", "ενέργεια", "συγχώνευση σε", "αιτία"],
+      ["id", "tag", "slug", "url", "άρθρα", "τελευταίο άρθρο", "gsc_clicks", "gsc_impressions", "ga4_views", "ζήτηση", "ενέργεια", "συγχώνευση σε", "αιτία"],
       ...list.map((t) => [
-        t.id, t.name, t.slug, SITE + t.path, t.count, t.perf.clicks, t.perf.impressions, t.perf.views,
+        t.id, t.name, t.slug, SITE + t.path, t.count ?? "", t.lastmod?.slice(0, 10) ?? "", t.perf.clicks, t.perf.impressions, t.perf.views,
         t.demand, ACTION_LABEL[t.action], t.mergeInto?.name ?? "", t.reason,
       ]),
     ]);
@@ -162,7 +179,7 @@ function AuditView() {
         <div className="kpi"><div className="label">Tags συνολικά</div><div className="value">{fmt(data.totals.tags)}</div></div>
         <div className="kpi"><div className="label">Ομάδες διπλοτύπων</div><div className="value warn">{fmt(data.totals.duplicateGroups)}</div></div>
         <div className="kpi"><div className="label">Ορφανά (0–1 άρθρο)</div><div className="value warn">{fmt(data.totals.orphans)}</div></div>
-        <div className="kpi"><div className="label">Thin (2–4, χωρίς κίνηση)</div><div className="value">{fmt(data.totals.thin)}</div></div>
+        <div className="kpi"><div className="label">{data.totals.orphans === null ? "Ανενεργά (6+ μήνες, χωρίς κίνηση)" : "Thin (2–4, χωρίς κίνηση)"}</div><div className="value">{fmt(data.totals.thin)}</div></div>
         <div className="kpi"><div className="label">Υποψήφια topic hubs</div><div className="value good">{fmt(data.totals.hubs)}</div></div>
       </div>
 
@@ -184,13 +201,13 @@ function AuditView() {
                   {g.kind === "exact" ? "σίγουρο" : g.kind === "fuzzy" ? "πιθανό" : "σύντομη μορφή"}
                 </span>
                 <span className="dup-canon">
-                  <TagLink name={g.canonical.name} path={g.canonical.path} /> <span className="muted">({g.canonical.count})</span>
+                  <TagLink name={g.canonical.name} path={g.canonical.path} /> {g.canonical.count != null && <span className="muted">({g.canonical.count})</span>}
                 </span>
                 <span className="muted">←</span>
                 <span className="dup-members">
                   {g.members.map((m) => (
                     <span key={m.id} className="pill">
-                      <TagLink name={m.name} path={m.path} /> <span className="muted">({m.count})</span>
+                      <TagLink name={m.name} path={m.path} /> {m.count != null && <span className="muted">({m.count})</span>}
                     </span>
                   ))}
                 </span>
@@ -221,6 +238,7 @@ function AuditView() {
               <tr>
                 <th>Tag</th>
                 <th className="num">Άρθρα</th>
+                <th className="num" title="Τελευταίο άρθρο με αυτό το tag (sitemap)">Τελευταίο</th>
                 <th className="num" title="Search Console, 28 ημέρες">Clicks</th>
                 <th className="num" title="Search Console, 28 ημέρες">Impr.</th>
                 <th className="num" title="GA4, 28 ημέρες">Views</th>
@@ -233,6 +251,7 @@ function AuditView() {
                 <tr key={t.id}>
                   <td><TagLink name={t.name} path={t.path} /></td>
                   <td className="num">{fmt(t.count)}</td>
+                  <td className="num">{fmtDate(t.lastmod)}</td>
                   <td className="num">{fmt(t.perf.clicks)}</td>
                   <td className="num">{fmt(t.perf.impressions)}</td>
                   <td className="num">{fmt(t.perf.views)}</td>
@@ -266,7 +285,7 @@ function SuggestCard({ s }: { s: SuggestedTag }) {
         {s.trending && <span className="tag hot">🔥 trend</span>}
       </div>
       <div className="muted small">
-        {s.existing ? `${fmt(s.count ?? 0)} άρθρα · ` : "νέο tag · "}
+        {s.existing ? (s.count != null ? `${fmt(s.count)} άρθρα · ` : "υπάρχον tag · ") : "νέο tag · "}
         {s.where.includes("title") ? "στον τίτλο" : "στο κείμενο"}
         {s.demand ? ` · ζήτηση ${fmt(s.demand)}` : ""}
       </div>
@@ -425,7 +444,7 @@ function GapView() {
               {data.topTags.map((t, i) => (
                 <div className="list-row" key={i}>
                   <span className="rank">{i + 1}</span>
-                  <span className="list-title"><TagLink name={t.name} path={t.path} /> <span className="muted">({t.count})</span></span>
+                  <span className="list-title"><TagLink name={t.name} path={t.path} /> {t.count != null && <span className="muted">({t.count})</span>}</span>
                   <span className="list-val">{fmt(t.demand)}</span>
                 </div>
               ))}
@@ -482,7 +501,7 @@ function TrendingView() {
                       <>
                         <TagLink name={it.matchedTag.name} path={it.matchedTag.path} />{" "}
                         <span className="muted small">
-                          ({it.matchedTag.count} άρθρα
+                          ({it.matchedTag.count != null ? `${it.matchedTag.count} άρθρα` : "υπάρχει"}
                           {it.matchedTag.kind === "partial" ? ", μερική αντιστοίχιση" : it.matchedTag.kind === "fuzzy" ? ", ευρύτερο tag" : ""})
                         </span>
                       </>

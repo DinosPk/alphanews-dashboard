@@ -808,33 +808,43 @@ export async function debugCountries() {
 
 // ----------------------------- SEO TAGS -----------------------------
 /**
- * Προβολές σελίδων tag (π.χ. /tag/...) τις τελευταίες 28 ημέρες.
+ * Προβολές και τίτλος σελίδων tag (π.χ. /tag/...) τις τελευταίες 28 ημέρες.
  * Επιστρέφει null αν το GA4 δεν είναι ρυθμισμένο. Κλειδί = pagePath.
+ * Ο τίτλος είναι ο πιο συχνός <title> της σελίδας (για ονόματα tags όταν
+ * τα tags έρχονται από το sitemap, χωρίς όνομα).
  */
 export async function getTagPageViews(
   tagBase: string
-): Promise<Map<string, number> | null> {
+): Promise<Map<string, { views: number; title: string }> | null> {
   if (!isConfigured()) return null;
   const client = buildClient();
   if (!client) return null;
   const [res] = await client.runReport({
     property,
     dateRanges: [{ startDate: "28daysAgo", endDate: "yesterday" }],
-    dimensions: [{ name: "pagePath" }],
+    dimensions: [{ name: "pagePath" }, { name: "pageTitle" }],
     metrics: [{ name: "screenPageViews" }],
     dimensionFilter: beginsWith(tagBase),
     orderBys: [{ metric: { metricName: "screenPageViews" }, desc: true }],
     limit: 25000,
   });
-  const out = new Map<string, number>();
+  const out = new Map<string, { views: number; title: string; titleViews: number }>();
   for (const row of res.rows ?? []) {
     const path = row.dimensionValues?.[0]?.value ?? "";
-    // Ενοποίηση /tag/x και /tag/x/ και ?page=2
+    const title = row.dimensionValues?.[1]?.value ?? "";
+    const v = num(row.metricValues?.[0]?.value);
+    // Ενοποίηση /tag/x, /tag/x/, /tag/x/page/2/ και ?query
     const key = path
       .split("?")[0]
       .replace(/\/page\/\d+\/?$/, "/")
       .replace(/\/?$/, "/");
-    out.set(key, (out.get(key) ?? 0) + num(row.metricValues?.[0]?.value));
+    const cur = out.get(key) ?? { views: 0, title: "", titleViews: -1 };
+    cur.views += v;
+    if (title && title !== "(not set)" && v > cur.titleViews) {
+      cur.title = title;
+      cur.titleViews = v;
+    }
+    out.set(key, cur);
   }
-  return out;
+  return new Map([...out.entries()].map(([k, x]) => [k, { views: x.views, title: x.title }]));
 }

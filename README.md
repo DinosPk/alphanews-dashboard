@@ -164,9 +164,14 @@ Moments `/video-moments/`, Δελτία ειδήσεων `/newscast/alpha-news`)
 
 ### Πηγές δεδομένων
 
-- **WordPress REST API** (`/wp-json/wp/v2/tags`, `/posts`): στο alphatv.gr απαντά μόνο σε
-  συνδεδεμένους χρήστες, οπότε θέλει `WP_APP_USER` + `WP_APP_PASSWORD` (Application Password από
-  wp-admin → Users → Profile → Application Passwords). Προτίμησε ξεχωριστό χρήστη με ρόλο Subscriber.
+- **Tags του site**: πρώτα το WordPress REST API (`/wp-json/wp/v2/tags`), που δίνει ονόματα και πλήθος
+  άρθρων. Στο alphatv.gr όμως το API απαντά μόνο σε συνδεδεμένους χρήστες, οπότε το module πέφτει
+  αυτόματα στο **δημόσιο sitemap του Yoast** (`post_tag-sitemap*.xml`): όλα τα tags με ημερομηνία
+  τελευταίου άρθρου, ονόματα από τους τίτλους των σελίδων στο GA4, χωρίς πλήθος άρθρων. Τα ορφανά
+  δεν φαίνονται σε αυτή τη λειτουργία (το Yoast βγάζει τα άδεια tags από το sitemap) και το «thin»
+  κρίνεται από κίνηση + ημερομηνία τελευταίου άρθρου. Αν κάποτε δοθεί πρόσβαση, `WP_APP_USER` +
+  `WP_APP_PASSWORD` (Application Password) ενεργοποιούν το REST API.
+- **Πρόταση tags από URL**: διαβάζει τη δημόσια σελίδα του άρθρου (τίτλος, κείμενο, τρέχοντα tags).
 - **Google Search Console**: θέλει refresh token με scope `webmasters.readonly`.
   Ξανατρέξε `node get-oauth-token.mjs <CLIENT_ID> <CLIENT_SECRET>` (ζητάει πλέον και GA4 και GSC scope)
   με λογαριασμό που έχει πρόσβαση στο GSC property, και ενημέρωσε το `GA4_OAUTH_REFRESH_TOKEN`

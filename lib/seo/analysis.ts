@@ -26,7 +26,7 @@ import {
   displayCase,
   accentScore,
 } from "./normalize";
-import { fetchAllTags, tagBasePath, fetchArticleByUrl } from "./wordpress";
+import { fetchAllTags, tagBasePath, fetchArticleByUrl, type TagSource } from "./wordpress";
 import { fetchQueries, fetchTagPages, gscConfigured, gscPeriod, type GscRow } from "./gsc";
 import { fetchTrends } from "./trends";
 import { getTagPageViews } from "../ga4";
@@ -63,9 +63,24 @@ interface Context {
   queries: IndexedQuery[];
   tagBase: string;
   gscPages: Map<string, GscRow>;
-  ga4Views: Map<string, number> | null;
+  ga4Views: Map<string, { views: number; title: string }> | null;
+  /** false όταν τα tags ήρθαν από το sitemap (χωρίς πλήθος άρθρων) */
+  hasCounts: boolean;
   sources: SourceStatus;
   demo: boolean;
+}
+
+/** Πλήθος άρθρων για ταξινόμηση (0 όταν είναι άγνωστο). */
+const cnt = (t: { count: number | null }) => t.count ?? 0;
+
+/** «ΦΩΤΙΑ - Alpha TV», «Αρχεία ΦΩΤΙΑ | AlphaTV», «Fotia Archives» → όνομα tag. */
+function cleanTagTitle(title: string): string {
+  return title
+    .split(/\s+[|–—-]\s+/)[0]
+    .replace(/^(Αρχεία|Ετικέτα|Tag)\s*:?\s*/i, "")
+    .replace(/\s+(Archives|Αρχεία)$/i, "")
+    .replace(/\s*(Σελίδα|Page)\s+\d+.*$/i, "")
+    .trim();
 }
 
 function errMsg(e: unknown) {
@@ -93,11 +108,16 @@ function indexTags(raw: WpTag[]) {
 async function buildContext(): Promise<Context> {
   const sources: SourceStatus = { wordpress: "ok", gsc: "ok", ga4: "ok", errors: {} };
 
+  let src: TagSource | null = null;
   let rawTags: WpTag[];
   let demo = false;
   try {
-    rawTags = await fetchAllTags();
-    if (!rawTags.length) throw new Error("WordPress: κανένα tag");
+    src = await fetchAllTags();
+    rawTags = src.tags;
+    if (src.source === "sitemap") {
+      sources.wordpress = "sitemap";
+      if (src.restError) sources.errors!.wordpress = `REST API: ${src.restError} — χρησιμοποιείται το sitemap`;
+    }
   } catch (e) {
     // Χωρίς tags δεν έχει νόημα τίποτα → πλήρες DEMO (όχι ανάμειξη).
     rawTags = MOCK_TAGS;
@@ -108,7 +128,7 @@ async function buildContext(): Promise<Context> {
 
   let queries: GscRow[] = [];
   let gscPages = new Map<string, GscRow>();
-  let ga4Views: Map<string, number> | null = null;
+  let ga4Views: Context["ga4Views"] = null;
 
   if (demo) {
     sources.wordpress = sources.gsc = sources.ga4 = "demo";
@@ -135,6 +155,14 @@ async function buildContext(): Promise<Context> {
     }
   }
 
+  // Tags από sitemap: ονόματα από τον τίτλο της σελίδας στο GA4 (αλλιώς το slug).
+  if (src?.source === "sitemap" && ga4Views) {
+    rawTags = rawTags.map((t) => {
+      const title = cleanTagTitle(ga4Views!.get(t.path.replace(/\/?$/, "/"))?.title ?? "");
+      return title ? { ...t, name: title } : t;
+    });
+  }
+
   const idx = indexTags(rawTags);
   return {
     ...idx,
@@ -144,6 +172,7 @@ async function buildContext(): Promise<Context> {
     tagBase,
     gscPages,
     ga4Views,
+    hasCounts: demo || src?.source === "rest",
     sources,
     demo,
   };
@@ -200,7 +229,17 @@ const isAllCaps = (name: string) => {
   return letters.length > 4 && letters === letters.toLocaleUpperCase("el") && /\p{Lu}/u.test(letters);
 };
 
-const plain = (t: IndexedTag): WpTag => ({ id: t.id, name: t.name, slug: t.slug, count: t.count, path: t.path });
+const plain = (t: IndexedTag): WpTag => ({
+  id: t.id,
+  name: t.name,
+  slug: t.slug,
+  count: t.count,
+  path: t.path,
+  lastmod: t.lastmod,
+});
+
+const DAY = 86400000;
+const daysSince = (iso?: string) => (iso ? (Date.now() - Date.parse(iso)) / DAY : null);
 
 // ---------------------------- 1. AUDIT ----------------------------
 
@@ -215,10 +254,13 @@ export async function getAudit(): Promise<AuditData> {
       clicks: g?.clicks ?? 0,
       impressions: g?.impressions ?? 0,
       position: g ? Math.round(g.position * 10) / 10 : null,
-      views: ctx.ga4Views?.get(key) ?? 0,
+      views: ctx.ga4Views?.get(key)?.views ?? 0,
     };
   };
-  const strength = (t: IndexedTag) => t.count * 10 + perfOf(t).clicks;
+  const strength = (t: IndexedTag) => {
+    const p = perfOf(t);
+    return cnt(t) * 10 + p.clicks + p.views / 20;
+  };
 
   // --- Διπλότυπα: πρώτα exact, μετά fuzzy ανάμεσα στους «νικητές» ---
   const duplicates: DuplicateGroup[] = [];
@@ -266,7 +308,7 @@ export async function getAudit(): Promise<AuditData> {
   duplicates.sort(
     (a, b) =>
       kindOrder[a.kind] - kindOrder[b.kind] ||
-      b.members.reduce((s, m) => s + m.count, 0) - a.members.reduce((s, m) => s + m.count, 0)
+      b.members.reduce((s, m) => s + cnt(m), 0) - a.members.reduce((s, m) => s + cnt(m), 0)
   );
 
   // --- Απόφαση ανά tag ---
@@ -283,8 +325,18 @@ export async function getAudit(): Promise<AuditData> {
     let reason = "Εντάξει";
     let mergeInto: AuditTag["mergeInto"];
 
-    const isOrphan = t.count <= 1;
-    const isThin = !isOrphan && t.count <= THIN_MAX_POSTS && perf.clicks === 0 && perf.views < THIN_MAX_VIEWS;
+    const noTraffic = perf.clicks === 0 && perf.views < THIN_MAX_VIEWS;
+    const age = daysSince(t.lastmod);
+    const isOrphan = t.count !== null && t.count <= 1;
+    // Χωρίς πλήθος άρθρων (sitemap): thin = καμία κίνηση & κανένα νέο άρθρο εδώ και 6 μήνες.
+    const isThin =
+      !isOrphan &&
+      noTraffic &&
+      (t.count !== null ? t.count <= THIN_MAX_POSTS : age !== null && age > 180);
+    const isHub =
+      t.count !== null
+        ? t.count >= HUB_MIN_POSTS && (dem >= HUB_MIN_DEMAND || perf.clicks >= 100)
+        : dem >= HUB_MIN_DEMAND && (perf.clicks >= 100 || perf.views >= 1000);
     if (isOrphan) orphans++;
     if (isThin) thin++;
 
@@ -301,11 +353,18 @@ export async function getAudit(): Promise<AuditData> {
       reason = t.count === 0 ? "Χωρίς άρθρα — διαγραφή" : "Μόνο 1 άρθρο — noindex ή διαγραφή";
     } else if (isThin) {
       action = "noindex";
-      reason = `${t.count} άρθρα, καμία κίνηση από Google — noindex μέχρι να μεγαλώσει`;
-    } else if (t.count >= HUB_MIN_POSTS && (dem >= HUB_MIN_DEMAND || perf.clicks >= 100)) {
+      reason =
+        t.count !== null
+          ? `${t.count} άρθρα, καμία κίνηση από Google — noindex μέχρι να μεγαλώσει`
+          : `Κανένα νέο άρθρο εδώ και ${Math.round(age ?? 0)} ημέρες και καμία κίνηση — noindex`;
+    } else if (isHub) {
       action = "hub";
       hubs++;
-      reason = `${t.count} άρθρα & ζήτηση ${dem.toLocaleString("el-GR")} impressions — κάν' το topic hub (intro κείμενο, H1, evergreen)`;
+      reason =
+        (t.count !== null
+          ? `${t.count} άρθρα & ζήτηση ${dem.toLocaleString("el-GR")} impressions`
+          : `Ζήτηση ${dem.toLocaleString("el-GR")} impressions & ${perf.views.toLocaleString("el-GR")} views`) +
+        " — κάν' το topic hub (intro κείμενο, H1, evergreen)";
     } else if (allCaps) {
       action = "fix-case";
       reason = "Όνομα ΟΛΟ ΚΕΦΑΛΑΙΑ — εμφανίζεται έτσι στο H1/title της σελίδας";
@@ -316,12 +375,17 @@ export async function getAudit(): Promise<AuditData> {
   });
 
   const order: Record<TagAction, number> = { merge: 0, hub: 1, noindex: 2, "fix-case": 3, keep: 4 };
-  tags.sort((a, b) => order[a.action] - order[b.action] || b.count - a.count);
+  tags.sort(
+    (a, b) =>
+      order[a.action] - order[b.action] ||
+      cnt(b) - cnt(a) ||
+      b.perf.views + b.perf.clicks * 20 - (a.perf.views + a.perf.clicks * 20)
+  );
 
   return {
     totals: {
       tags: tags.length,
-      orphans,
+      orphans: ctx.hasCounts ? orphans : null,
       thin,
       duplicateGroups: duplicates.filter((d) => d.kind !== "subset").length,
       capsInconsistent: caps,
@@ -425,7 +489,7 @@ export async function getGap(): Promise<GapData> {
   const bestByFuzzy = new Map<string, IndexedTag>();
   for (const t of ctx.tags) {
     const b = bestByFuzzy.get(t.fuzzy);
-    if (!b || t.count > b.count) bestByFuzzy.set(t.fuzzy, t);
+    if (!b || cnt(t) > cnt(b)) bestByFuzzy.set(t.fuzzy, t);
   }
   const topTags = [...bestByFuzzy.values()]
     .map((t) => ({ name: t.name, path: t.path, count: t.count, demand: demand.get(t.id)?.impressions ?? 0 }))
@@ -461,12 +525,11 @@ export async function suggestTags(input: { title?: string; text?: string; url?: 
   let current: string[] | undefined;
 
   if (input.url && !ctx.demo) {
-    const art = await fetchArticleByUrl(input.url);
+    const art = await fetchArticleByUrl(input.url, ctx.tagBase);
     if (!art) throw new Error("Δεν βρέθηκε άρθρο σε αυτό το URL");
     title = art.title;
     text = art.text;
-    const byId = new Map(ctx.tags.map((t) => [t.id, t.name]));
-    current = art.tagIds.map((id) => byId.get(id) ?? `#${id}`);
+    current = art.tags.map((t) => t.name);
   }
   if (!title && !text) throw new Error("Δώσε τίτλο/κείμενο ή URL άρθρου");
 
@@ -477,6 +540,9 @@ export async function suggestTags(input: { title?: string; text?: string; url?: 
     trends.some((tr) => containsPhrase(tr, toks) > 0 || containsPhrase(toks, tr) > 0);
 
   const demand = tagDemand(ctx);
+  // «Δημοφιλία» tag: πλήθος άρθρων, ή (χωρίς πλήθος) προβολές της σελίδας tag.
+  const pop = (t: IndexedTag) =>
+    t.count ?? Math.round((ctx.ga4Views?.get(t.path.replace(/\/?$/, "/"))?.views ?? 0) / 50);
   const inTitle = tagsInTokens(ctx, titleTok);
   const inBody = tagsInTokens(ctx, bodyTok);
 
@@ -488,7 +554,7 @@ export async function suggestTags(input: { title?: string; text?: string; url?: 
     const bh = inBody.get(t) ?? 0;
     const dem = demand.get(t.id)?.impressions ?? 0;
     const score =
-      (th * 3 + Math.min(bh, 5)) * (1 + Math.log10(t.count + 1)) * (1 + Math.log10(dem + 1) / 4) *
+      (th * 3 + Math.min(bh, 5)) * (1 + Math.log10(pop(t) + 1)) * (1 + Math.log10(dem + 1) / 4) *
       (t.tokens.length > 1 ? 1.3 : 1); // πιο συγκεκριμένα tags προηγούνται
     const s: SuggestedTag = {
       name: t.name,
@@ -503,7 +569,7 @@ export async function suggestTags(input: { title?: string; text?: string; url?: 
     };
     // Ένα tag ανά ομάδα διπλοτύπων (κρατάμε το ισχυρότερο).
     const prev = seenGroup.get(t.fuzzy);
-    if (!prev || (prev.count ?? 0) < t.count) seenGroup.set(t.fuzzy, s);
+    if (!prev || (prev.count ?? 0) < cnt(t)) seenGroup.set(t.fuzzy, s);
   }
   // Αν ταιριάζει και «Μητσοτάκης» και «Κυριάκος Μητσοτάκης», κράτα το πιο συγκεκριμένο.
   let existing = [...seenGroup.values()];
@@ -536,7 +602,7 @@ export async function suggestTags(input: { title?: string; text?: string; url?: 
     const bh = containsPhrase(bodyTok, toks);
     const dem = phraseDemand(ctx, phrase);
     // Μοιάζει με υπάρχον tag; (π.χ. «Σαμαρά» → υπάρχει «Αντώνης Σαμαράς»)
-    const similar = ctx.tags.find((t) => containsPhrase(t.tokens, toks) > 0 && t.count > 2);
+    const similar = ctx.tags.find((t) => containsPhrase(t.tokens, toks) > 0 && (t.count ?? 3) > 2);
     if (similar && !existing.some((e) => e.id === similar.id)) {
       // Πρότεινε το υπάρχον αντί για νέο.
       existing.push({
@@ -611,14 +677,14 @@ export async function getTrending(): Promise<TrendingData> {
     const toks = fuzzyTokens(it.title);
     const exact = ctx.byFuzzy.get(toks.join(" "));
     if (exact?.length) {
-      const best = [...exact].sort((a, b) => b.count - a.count)[0];
+      const best = [...exact].sort((a, b) => cnt(b) - cnt(a))[0];
       it.matchedTag = { name: best.name, path: best.path, count: best.count, kind: "exact" };
       continue;
     }
     // Ευρύτερο tag που περιέχει το trend («σαμαρας» → «Αντώνης Σαμαράς»)
     const broader = ctx.tags
       .filter((t) => t.tokens.length > toks.length && containsPhrase(t.tokens, toks) > 0)
-      .sort((a, b) => b.count - a.count)[0];
+      .sort((a, b) => cnt(b) - cnt(a))[0];
     if (broader) {
       it.matchedTag = { name: broader.name, path: broader.path, count: broader.count, kind: "fuzzy" };
       continue;
@@ -626,7 +692,7 @@ export async function getTrending(): Promise<TrendingData> {
     // Tag μέσα στο trend («παοκ καλαματα καναλι» → «ΠΑΟΚ»)
     const inside = [...tagsInTokens(ctx, toks).keys()]
       .filter((t) => t.exact.length >= 3)
-      .sort((a, b) => b.tokens.length - a.tokens.length || b.count - a.count)[0];
+      .sort((a, b) => b.tokens.length - a.tokens.length || cnt(b) - cnt(a))[0];
     if (inside) {
       it.matchedTag = { name: inside.name, path: inside.path, count: inside.count, kind: "partial" };
     }

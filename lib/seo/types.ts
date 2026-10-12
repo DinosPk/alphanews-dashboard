@@ -4,10 +4,12 @@ export interface WpTag {
   id: number;
   name: string;
   slug: string;
-  /** Πλήθος άρθρων με αυτό το tag */
-  count: number;
+  /** Πλήθος άρθρων με αυτό το tag (null όταν τα tags ήρθαν από το sitemap) */
+  count: number | null;
   /** Path της σελίδας tag, π.χ. /tag/fotia/ */
   path: string;
+  /** Ημερομηνία τελευταίου άρθρου (από το sitemap) */
+  lastmod?: string;
 }
 
 /** Απόδοση σελίδας tag στο Google Search (GSC) + GA4 */
@@ -45,7 +47,7 @@ export interface DuplicateGroup {
 export interface AuditData {
   totals: {
     tags: number;
-    orphans: number; // 0-1 άρθρα
+    orphans: number | null; // 0-1 άρθρα (null: άγνωστο χωρίς το WordPress API)
     thin: number; // 2-4 άρθρα & χωρίς κίνηση
     duplicateGroups: number;
     capsInconsistent: number; // ΟΛΟ ΚΕΦΑΛΑΙΑ
@@ -72,7 +74,7 @@ export interface GapRow {
 export interface GapData {
   rows: GapRow[];
   /** Tags με τη μεγαλύτερη ζήτηση — υποψήφια topic hubs */
-  topTags: { name: string; path: string; count: number; demand: number }[];
+  topTags: { name: string; path: string; count: number | null; demand: number }[];
   period: { start: string; end: string };
   sources: SourceStatus;
   demo: boolean;
@@ -85,7 +87,7 @@ export interface SuggestedTag {
   existing: boolean;
   id?: number;
   path?: string;
-  count?: number;
+  count?: number | null;
   score: number;
   /** Πού βρέθηκε (τίτλος / κείμενο) */
   where: ("title" | "body")[];
@@ -114,7 +116,7 @@ export interface TrendItem {
   trafficNum: number;
   pubDate: string;
   news: { title: string; url: string; source: string }[];
-  matchedTag?: { name: string; path: string; count: number; kind: "exact" | "fuzzy" | "partial" };
+  matchedTag?: { name: string; path: string; count: number | null; kind: "exact" | "fuzzy" | "partial" };
 }
 
 export interface TrendingData {
@@ -125,7 +127,8 @@ export interface TrendingData {
 }
 
 export interface SourceStatus {
-  wordpress: "ok" | "error" | "demo";
+  /** ok = REST API (με πλήθος άρθρων), sitemap = δημόσιο sitemap του Yoast (χωρίς πλήθος) */
+  wordpress: "ok" | "sitemap" | "error" | "demo";
   gsc: "ok" | "error" | "not-configured" | "demo";
   ga4: "ok" | "error" | "not-configured" | "demo";
   trends?: "ok" | "error" | "demo";

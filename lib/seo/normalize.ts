@@ -81,7 +81,7 @@ export function phonetic(s: string): string {
     .replace(/x/g, "ch") // greeklish: x = χ
     .replace(/(?<![ctp])h/g, "ch") // greeklish: h = χ (όχι στα th/ch/ph)
     .replace(/ph/g, "f")
-    .replace(/nd/g, "d") // mundial ≈ μουντιάλ
+    .replace(/nd|nt/g, "d") // mundial ≈ μουντιάλ, slug «ntonalnt» ≈ «Ντόναλντ»
     .replace(/mb|mp/g, "b")
     .replace(/n[gk]/g, "g")
     .replace(/(ai|ei|oi)/g, (m) => (m === "ai" ? "e" : "i"))

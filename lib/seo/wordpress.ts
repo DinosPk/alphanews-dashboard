@@ -100,9 +100,8 @@ function tagsUrl(page: number) {
   return `${WP_BASE}/wp-json/wp/v2/tags?per_page=${PER_PAGE}&page=${page}&orderby=count&order=desc&hide_empty=false&_fields=id,name,slug,count,link`;
 }
 
-/** Όλα τα tags του site (cache 30′). */
-export function fetchAllTags(): Promise<WpTag[]> {
-  return cached("wp:tags", 30 * 60 * 1000, async () => {
+function fetchTagsRest(): Promise<WpTag[]> {
+  return (async () => {
     const first = await getJson<RawTag[]>(tagsUrl(1));
     const pages = Math.min(first.totalPages, MAX_PAGES);
     const all: RawTag[] = [...first.data];
@@ -119,6 +118,75 @@ export function fetchAllTags(): Promise<WpTag[]> {
       count: t.count,
       path: pathOf(t.link),
     }));
+  })();
+}
+
+async function getText(url: string): Promise<string> {
+  const res = await fetch(url, {
+    headers: { Accept: "text/html,application/xml;q=0.9,*/*;q=0.8", "User-Agent": UA },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`${res.status} στο ${url.replace(WP_BASE, "")}`);
+  return res.text();
+}
+
+/** «fotia-2» → «fotia», «ntonalnt-trab» → «ntonalnt trab» (προσωρινό όνομα μέχρι να έρθει τίτλος). */
+export function slugToName(slug: string): string {
+  return decodeURIComponent(slug).replace(/-[2-9]$/, "").replace(/-/g, " ");
+}
+
+/**
+ * Tags από το δημόσιο sitemap του Yoast (post_tag-sitemap*.xml). Δεν έχει
+ * ονόματα ούτε πλήθος άρθρων — μόνο URL και ημερομηνία τελευταίου άρθρου.
+ * Το Yoast αφήνει έξω τα άδεια και τα noindex tags.
+ */
+async function fetchTagsSitemap(): Promise<WpTag[]> {
+  const index = await getText(`${WP_BASE}/sitemap_index.xml`);
+  let maps = [...index.matchAll(/<loc>([^<]*post_tag-sitemap\d*\.xml)<\/loc>/g)].map((m) => m[1].trim());
+  if (!maps.length) maps = [`${WP_BASE}/post_tag-sitemap.xml`];
+  const tags: WpTag[] = [];
+  const seen = new Set<string>();
+  for (const xml of await Promise.all(maps.map((u) => getText(u)))) {
+    for (const m of xml.matchAll(/<url>([\s\S]*?)<\/url>/g)) {
+      const loc = m[1].match(/<loc>([^<]+)<\/loc>/)?.[1]?.trim();
+      if (!loc) continue;
+      const path = pathOf(decodeEntities(loc));
+      if (seen.has(path)) continue;
+      seen.add(path);
+      const slug = path.split("/").filter(Boolean).pop() ?? "";
+      tags.push({
+        id: -(tags.length + 1), // δεν έχουμε WP id — αρνητικό, μοναδικό
+        name: slugToName(slug),
+        slug,
+        count: null,
+        path,
+        lastmod: m[1].match(/<lastmod>([^<]+)<\/lastmod>/)?.[1]?.trim(),
+      });
+    }
+  }
+  if (!tags.length) throw new Error("Το sitemap δεν έχει tags");
+  return tags;
+}
+
+export interface TagSource {
+  tags: WpTag[];
+  source: "rest" | "sitemap";
+  /** Γιατί δεν χρησιμοποιήθηκε το REST API */
+  restError?: string;
+}
+
+/**
+ * Όλα τα tags του site (cache 30′). Πρώτα το REST API (έχει ονόματα & πλήθος
+ * άρθρων)· αν είναι κλειστό — όπως στο alphatv.gr χωρίς login — το sitemap.
+ */
+export function fetchAllTags(): Promise<TagSource> {
+  return cached("wp:tags", 30 * 60 * 1000, async () => {
+    try {
+      return { tags: await fetchTagsRest(), source: "rest" as const };
+    } catch (e) {
+      const restError = (e instanceof Error ? e.message : String(e)).slice(0, 200);
+      return { tags: await fetchTagsSitemap(), source: "sitemap" as const, restError };
+    }
   });
 }
 
@@ -132,26 +200,41 @@ export function tagBasePath(tags: WpTag[]): string {
 export interface WpArticle {
   title: string;
   text: string;
-  tagIds: number[];
+  /** Tags του άρθρου (path → όνομα όπως φαίνεται στη σελίδα) */
+  tags: { path: string; name: string }[];
   link: string;
 }
 
-/** Φέρνει άρθρο από URL του alphatv.gr (μέσω slug). */
-export async function fetchArticleByUrl(url: string): Promise<WpArticle | null> {
-  const u = new URL(url);
-  const slug = decodeURIComponent(u.pathname.split("/").filter(Boolean).pop() ?? "");
-  if (!slug) return null;
-  const { data } = await getJson<
-    { title: { rendered: string }; content: { rendered: string }; tags: number[]; link: string }[]
-  >(
-    `${WP_BASE}/wp-json/wp/v2/posts?slug=${encodeURIComponent(slug)}&_fields=title,content,tags,link`
-  );
-  const post = data[0];
-  if (!post) return null;
+/**
+ * Φέρνει άρθρο από τη δημόσια σελίδα του (HTML) — δουλεύει χωρίς το REST API.
+ * Τίτλος από og:title/H1, κείμενο από το <article>, tags από τα links /tag/.
+ */
+export async function fetchArticleByUrl(url: string, tagBase = "/tag/"): Promise<WpArticle | null> {
+  const html = await getText(url);
+  const meta = (prop: string) =>
+    html.match(new RegExp(`<meta[^>]+property=["']${prop}["'][^>]+content=["']([^"']*)["']`, "i"))?.[1] ??
+    html.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+property=["']${prop}["']`, "i"))?.[1];
+  const h1 = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1];
+  const title = stripHtml(meta("og:title") ?? h1 ?? "")
+    .replace(/\s*[|–-]\s*Alpha\s*TV.*$/i, "")
+    .trim();
+  const article =
+    html.match(/<article[\s\S]*?<\/article>/i)?.[0] ??
+    html.match(/<main[\s\S]*?<\/main>/i)?.[0] ??
+    html;
+  const tagRe = new RegExp(`<a[^>]+href=["'](?:https?://[^"'/]+)?(${tagBase.replace(/\//g, "\\/")}[^"'?#]+)["'][^>]*>([\\s\\S]*?)<\\/a>`, "gi");
+  const tags = new Map<string, string>();
+  for (const m of html.matchAll(tagRe)) {
+    const path = m[1].replace(/\/?$/, "/");
+    const name = stripHtml(m[2]).replace(/^#/, "").trim();
+    if (name && !tags.has(path)) tags.set(path, name);
+  }
+  if (!title) return null;
   return {
-    title: stripHtml(post.title.rendered),
-    text: stripHtml(post.content.rendered),
-    tagIds: post.tags ?? [],
-    link: post.link,
+    title,
+    // Χωρίς τα links των tags, αλλιώς τα υπάρχοντα tags «βρίσκονται» στο κείμενο.
+    text: stripHtml(article.replace(tagRe, " ")),
+    tags: [...tags.entries()].map(([path, name]) => ({ path, name })),
+    link: url,
   };
 }
