@@ -190,11 +190,18 @@ export async function exportMonthlyPdf(
   hc.textBaseline = "top";
   hc.fillStyle = "#111726";
   hc.font = `800 ${22 * s}px ${FONT}`;
-  hc.fillText("alphanews · Μηνιαία στοιχεία", 0, 14 * s);
+  hc.fillText("alphanews · Μηνιαία στοιχεία ειδήσεων", 0, 14 * s);
+  if (data.demo) {
+    hc.fillStyle = "#e4002b";
+    hc.font = `800 ${13 * s}px ${FONT}`;
+    hc.textAlign = "right";
+    hc.fillText("DEMO ΔΕΔΟΜΕΝΑ — όχι πραγματικά", head.width, 18 * s);
+    hc.textAlign = "left";
+  }
   hc.fillStyle = "#4a5470";
   hc.font = `500 ${12 * s}px ${FONT}`;
   hc.fillText(
-    `Ενότητα: ${sectionLabel}  ·  Περίοδος: ${first} – ${last}  ·  Πηγή: Google Analytics 4${data.demo ? " (demo)" : ""}`,
+    `Scope: ${sectionLabel === "Όλες οι ενότητες" ? "Ειδήσεις · όλες οι ενότητες" : `Ειδήσεις · ${sectionLabel}`}  ·  Περίοδος: ${first} – ${last}  ·  Πηγή: Google Analytics 4`,
     0,
     50 * s
   );
@@ -219,7 +226,7 @@ export async function exportMonthlyPdf(
     y += chartH + gap;
   }
 
-  const slug = sectionLabel === "Όλες οι ενότητες" ? "all" : sectionLabel;
+  const slug = sectionLabel === "Όλες οι ενότητες" ? "news" : `news-${sectionLabel}`;
   const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
   doc.save(`alphanews-miniaia-${slug}-${stamp}.pdf`);
 }
