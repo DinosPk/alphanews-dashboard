@@ -11,6 +11,13 @@ import type {
 import { SECTIONS } from "@/lib/sections";
 import TrendChart from "@/components/TrendChart";
 import MonthlyChart from "@/components/MonthlyChart";
+import { exportMonthlyPdf, type ExportChart } from "@/lib/exportMonthly";
+
+const MONTHLY_CHARTS: (ExportChart & { icon: string; name: string })[] = [
+  { metric: "pageViews", title: "Προβολές σελίδων · ανά μήνα", name: "Προβολές", color: "#e4002b", icon: "📄" },
+  { metric: "users", title: "Χρήστες · ανά μήνα", name: "Χρήστες", color: "#3d7dff", icon: "👥" },
+  { metric: "sessions", title: "Συνεδρίες · ανά μήνα", name: "Συνεδρίες", color: "#2ed47a", icon: "🧭" },
+];
 
 type View = "overview" | "monthly";
 
@@ -75,6 +82,7 @@ export default function Page() {
   const [rt, setRt] = useState<RealtimeData | null>(null);
   const [hist, setHist] = useState<HistoricalData | null>(null);
   const [monthly, setMonthly] = useState<MonthlyData | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [view, setView] = useState<View>("overview");
   const [range, setRange] = useState<RangeKey>("24h");
   const [section, setSection] = useState<string>("all");
@@ -475,6 +483,27 @@ export default function Page() {
                   </option>
                 ))}
               </select>
+              <button
+                className="btn"
+                disabled={!monthly || exporting}
+                onClick={async () => {
+                  if (!monthly) return;
+                  setExporting(true);
+                  try {
+                    const label =
+                      SECTIONS.find((x) => x.key === section)?.label ??
+                      "Όλες οι ενότητες";
+                    await exportMonthlyPdf(monthly, MONTHLY_CHARTS, label);
+                  } catch (e) {
+                    console.error(e);
+                    alert("Η εξαγωγή απέτυχε. Δοκίμασε ξανά.");
+                  } finally {
+                    setExporting(false);
+                  }
+                }}
+              >
+                {exporting ? "Εξαγωγή…" : "⬇ Export PDF"}
+              </button>
             </div>
           </div>
 
@@ -486,36 +515,20 @@ export default function Page() {
 
           {monthly ? (
             <div className="grid" style={{ gap: 16 }}>
-              <div className="panel">
-                <h3>📄 Προβολές σελίδων · ανά μήνα</h3>
-                <MonthlyChart
-                  data={monthly.months}
-                  metric="pageViews"
-                  color="#e4002b"
-                  name="Προβολές"
-                  partialLast={monthly.partialLast}
-                />
-              </div>
-              <div className="panel">
-                <h3>👥 Χρήστες · ανά μήνα</h3>
-                <MonthlyChart
-                  data={monthly.months}
-                  metric="users"
-                  color="#3d7dff"
-                  name="Χρήστες"
-                  partialLast={monthly.partialLast}
-                />
-              </div>
-              <div className="panel">
-                <h3>🧭 Συνεδρίες · ανά μήνα</h3>
-                <MonthlyChart
-                  data={monthly.months}
-                  metric="sessions"
-                  color="#2ed47a"
-                  name="Συνεδρίες"
-                  partialLast={monthly.partialLast}
-                />
-              </div>
+              {MONTHLY_CHARTS.map((c) => (
+                <div className="panel" key={c.metric}>
+                  <h3>
+                    {c.icon} {c.title}
+                  </h3>
+                  <MonthlyChart
+                    data={monthly.months}
+                    metric={c.metric}
+                    color={c.color}
+                    name={c.name}
+                    partialLast={monthly.partialLast}
+                  />
+                </div>
+              ))}
             </div>
           ) : (
             <div className="grid" style={{ gap: 16 }}>

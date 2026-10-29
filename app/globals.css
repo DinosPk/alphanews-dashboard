@@ -346,6 +346,25 @@ body {
   border-color: var(--border);
 }
 
+.btn {
+  background: var(--accent);
+  color: #fff;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* top-level view tabs (Επισκόπηση / Μηνιαία) */
 .view-tabs {
   display: flex;
