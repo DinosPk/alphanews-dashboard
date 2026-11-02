@@ -103,8 +103,8 @@ export function mockMonthly(sectionKey?: string | null): MonthlyData {
   const rnd = seeded(20260101 + sectionSeed);
 
   const now = new Date();
-  // Ξεκινάμε από τον ανασχεδιασμό (Απρίλιος 2026) έως τον τρέχοντα μήνα.
-  const launch = new Date(2026, 3, 1); // Απρίλιος 2026 (0-based μήνας = 3)
+  // Ξεκινάμε από τον Μάιο 2026 (ο Απρίλιος ήταν μήνας μετάβασης) έως τον τρέχοντα μήνα.
+  const launch = new Date(2026, 4, 1); // Μάιος 2026 (0-based μήνας = 4)
   const count =
     (now.getFullYear() - launch.getFullYear()) * 12 +
     (now.getMonth() - launch.getMonth()) +
