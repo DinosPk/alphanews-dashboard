@@ -123,20 +123,33 @@ export function mockMonthly(sectionKey?: string | null): MonthlyData {
     const isCurrent = i === total - 1;
     // Ο τρέχων μήνας είναι ημιτελής → κλάσμα ανάλογα με τη μέρα.
     const partialFactor = isCurrent
-      ? Math.max(0.1, now.getDate() / 30)
+      ? Math.max(0.03, (now.getDate() - 1) / 30)
       : 1;
     const pageViews = Math.floor(
       base * sectionScale * season * (0.85 + rnd() * 0.35) * partialFactor
     );
     const users = Math.floor(pageViews * (0.42 + rnd() * 0.08));
     const sessions = Math.floor(users * (1.25 + rnd() * 0.25));
-    return {
+    const point: MonthPoint = {
       ym,
       label: `${MONTHS_GR_SHORT[m]} ${String(y).slice(2)}`,
       pageViews,
       users,
       sessions,
     };
+    const elapsed = now.getDate() - 1;
+    if (isCurrent && elapsed >= 1) {
+      const dim = new Date(y, m + 1, 0).getDate();
+      const k = dim / elapsed;
+      point.forecast = {
+        pageViews: Math.round(pageViews * k),
+        users: Math.round(users * k),
+        sessions: Math.round(sessions * k),
+      };
+      point.daysElapsed = elapsed;
+      point.daysInMonth = dim;
+    }
+    return point;
   });
 
   return {

@@ -64,6 +64,15 @@ export interface MonthPoint {
   users: number;
   /** Συνεδρίες */
   sessions: number;
+  /**
+   * Μόνο για τον τρέχοντα μήνα: πρόβλεψη ολόκληρου του μήνα με αναλογία
+   * (τιμή ολοκληρωμένων ημερών / ημέρες × ημέρες μήνα).
+   */
+  forecast?: { pageViews: number; users: number; sessions: number };
+  /** Ολοκληρωμένες ημέρες που μετρήθηκαν (τρέχων μήνας) */
+  daysElapsed?: number;
+  /** Ημέρες του μήνα */
+  daysInMonth?: number;
 }
 
 /** Απάντηση του /api/monthly — μηνιαία ιστορικά στοιχεία. */

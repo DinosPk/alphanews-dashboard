@@ -188,6 +188,8 @@ export default function Page() {
 
   const isDemo = rt?.demo || hist?.demo;
   const maxDevice = Math.max(...(rt?.byDevice.map((d) => d.users) ?? [1]), 1);
+  const totalDevice =
+    rt?.byDevice.reduce((a, d) => a + d.users, 0) || 1;
 
   // Το πιο «καυτό» άρθρο αυτή τη στιγμή (για το banner ειδοποίησης)
   const hottest = rt?.topPages
@@ -295,7 +297,9 @@ export default function Page() {
               <div className="bar-row" key={i}>
                 <div className="bar-head">
                   <span>{d.device}</span>
-                  <span className="muted">{fmt(d.users)}</span>
+                  <span className="muted">
+                    {fmt(d.users)} · {((d.users / totalDevice) * 100).toFixed(0)}%
+                  </span>
                 </div>
                 <div className="bar-track">
                   <div
@@ -510,7 +514,9 @@ export default function Page() {
           <div className="muted" style={{ fontSize: 12, margin: "0 2px 16px" }}>
             Κάθε στήλη = πλήρης μήνας (1η → τέλος).
             {monthly?.partialLast &&
-              " Ο τελευταίος μήνας είναι σε εξέλιξη (ξεθωριασμένος)."}
+              (monthly.months[monthly.months.length - 1]?.forecast
+                ? " Τρέχων μήνας: συμπαγές = ολοκληρωμένες ημέρες, θαμπό = πρόβλεψη μήνα (αναλογία ημερών)."
+                : " Ο τελευταίος μήνας είναι σε εξέλιξη (ξεθωριασμένος).")}
           </div>
 
           {monthly ? (

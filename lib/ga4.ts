@@ -280,18 +280,39 @@ export async function getMonthly(
   // Το GA4 σε μεγάλα date ranges + φίλτρο pagePath χτυπάει cardinality όρια και
   // ρίχνει τα δεδομένα στο "(other)", που το φίλτρο δεν πιάνει → τα νούμερα
   // κατέρρεαν (π.χ. 94 αντί για ~17.000). Αντ' αυτού: ΕΝΑ μικρό query ανά μήνα.
-  const curY = now.getFullYear();
-  const curM = now.getMonth() + 1;
-  const buckets: { ym: string; start: string; end: string }[] = [];
+  // Ημερομηνία στη ζώνη ώρας της Ελλάδας (ο server του Vercel τρέχει σε UTC).
+  const athens = now.toLocaleDateString("sv-SE", { timeZone: "Europe/Athens" });
+  const curY = Number(athens.slice(0, 4));
+  const curM = Number(athens.slice(5, 7));
+  const curD = Number(athens.slice(8, 10));
+  const buckets: {
+    ym: string;
+    start: string;
+    end: string;
+    isCurrent: boolean;
+    elapsed: number;
+    lastDay: number;
+  }[] = [];
   let y = LAUNCH_YEAR;
   let m = LAUNCH_MONTH;
   while (y < curY || (y === curY && m <= curM)) {
     const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
     const isCurrent = y === curY && m === curM;
+    // Τρέχων μήνας: μόνο ΟΛΟΚΛΗΡΩΜΕΝΕΣ ημέρες (έως χθες), ώστε η πρόβλεψη να
+    // βγαίνει σωστά με αναλογία. Την 1η του μήνα δεν υπάρχει πλήρης ημέρα →
+    // δείχνουμε τη σημερινή (μερική) χωρίς πρόβλεψη.
+    const elapsed = isCurrent ? curD - 1 : lastDay;
     buckets.push({
       ym: `${y}${p(m)}`,
       start: `${y}-${p(m)}-01`,
-      end: isCurrent ? "today" : `${y}-${p(m)}-${p(lastDay)}`,
+      end: isCurrent
+        ? elapsed >= 1
+          ? `${y}-${p(m)}-${p(elapsed)}`
+          : "today"
+        : `${y}-${p(m)}-${p(lastDay)}`,
+      isCurrent,
+      elapsed,
+      lastDay,
     });
     m++;
     if (m > 12) {
@@ -314,13 +335,24 @@ export async function getMonthly(
           dimensionFilter: scope,
         });
         const row = res.rows?.[0];
-        return {
+        const point: MonthPoint = {
           ym: b.ym,
           label: monthLabel(b.ym),
           pageViews: num(row?.metricValues?.[0]?.value),
           users: num(row?.metricValues?.[1]?.value),
           sessions: num(row?.metricValues?.[2]?.value),
         };
+        if (b.isCurrent && b.elapsed >= 1) {
+          const k = b.lastDay / b.elapsed;
+          point.forecast = {
+            pageViews: Math.round(point.pageViews * k),
+            users: Math.round(point.users * k),
+            sessions: Math.round(point.sessions * k),
+          };
+          point.daysElapsed = b.elapsed;
+          point.daysInMonth = b.lastDay;
+        }
+        return point;
       })
     );
 
