@@ -128,15 +128,27 @@ export default function Page() {
   // Top ειδήσεις (τελευταία ώρα): auto-refresh κάθε 60"
   useEffect(() => {
     loadRealtime();
-    const id = setInterval(loadRealtime, 60000);
-    return () => clearInterval(id);
+    // Όχι κλήσεις όταν το tab είναι κρυφό· ανανέωση μόλις ξαναφανεί.
+    const id = setInterval(() => {
+      if (!document.hidden) loadRealtime();
+    }, 60000);
+    const onVis = () => {
+      if (!document.hidden) loadRealtime();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, [loadRealtime]);
 
   // Ιστορικά: φόρτωση σε αλλαγή εύρους/ενότητας + auto-refresh κάθε 3'
   useEffect(() => {
     setHist(null); // skeleton μόνο στην αρχική φόρτωση/αλλαγή
     loadHistorical(range, section);
-    const id = setInterval(() => loadHistorical(range, section), 180000);
+    const id = setInterval(() => {
+      if (!document.hidden) loadHistorical(range, section);
+    }, 180000);
     return () => clearInterval(id);
   }, [range, section, loadHistorical]);
 
@@ -145,7 +157,9 @@ export default function Page() {
     if (view !== "monthly") return;
     setMonthly(null);
     loadMonthly(section);
-    const id = setInterval(() => loadMonthly(section), 1800000);
+    const id = setInterval(() => {
+      if (!document.hidden) loadMonthly(section);
+    }, 1800000);
     return () => clearInterval(id);
   }, [view, section, loadMonthly]);
 

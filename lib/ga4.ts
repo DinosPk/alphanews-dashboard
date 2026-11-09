@@ -14,6 +14,7 @@ import type {
   ChannelRow,
   TimePoint,
 } from "./types";
+import { guardClient } from "./quotaGuard";
 import { mockRealtime, mockHistorical, mockMonthly } from "./mock";
 import { findSection, NEWS_PATHS } from "./sections";
 
@@ -50,7 +51,13 @@ const hasServiceAccount = Boolean(
     (process.env.GA4_CLIENT_EMAIL && process.env.GA4_PRIVATE_KEY)
 );
 
+// Όλες οι κλήσεις περνούν από τον φύλακα quota (lib/quotaGuard.ts).
 function buildClient(): BetaAnalyticsDataClient | null {
+  const raw = buildRawClient();
+  return raw ? guardClient(raw) : null;
+}
+
+function buildRawClient(): BetaAnalyticsDataClient | null {
   try {
     // Προτεραιότητα: OAuth (σύνδεση με τον λογαριασμό του χρήστη).
     if (hasOAuth) {
